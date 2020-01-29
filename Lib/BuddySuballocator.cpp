@@ -2,9 +2,14 @@
 //
 
 #include "pch.h"
-#include "framework.h"
+#include "BuddySuballocator.h"
 
-// TODO: This is an example of a library function
-void fnBuddySuballocator()
+template<class _SizeType>
+class TBuddySuballocator
 {
-}
+
+public:
+    TBuddySuballocator(_SizeType)
+    {
+    }
+};
