@@ -85,6 +85,67 @@ constexpr unsigned long Log2Ceil(unsigned long long value)
 }
 
 //------------------------------------------------------------------------------------------------
+// Collection of indices linked bi-directionally.  Nodes are allocated from an indexable collection
+// provided during TIndexList construction.  This collection can be an array or a class
+// with read/write operator[].
+// The value _IndexType(0) - 1 is reserved as a terminal value, thus the max unsigned _IndexType value
+// cannot be used as a legitimate index.  For example, if _IndexType is unsigned char, the value 255
+// represents the terminal value, making 
+template<class _IndexableCollectionType, class _IndexType>
+class TIndexList
+{
+public:
+    //------------------------------------------------------------------------------------------------
+    // Node data type.
+    struct NodeType
+    {
+        _IndexType Next;
+        _IndexType Prev;
+    };
+
+    const _IndexType EndVal = _IndexType(0) - 1;
+
+private:
+    _IndexType m_Size = 0;
+    _IndexableCollectionType &m_IndexableCollection;
+    _IndexType m_BeginIndex = EndVal;
+
+public:
+
+    // Constructs an empty list using the given IndexableCollection to store nodes.
+    TIndexList(_IndexableCollectionType &IndexableCollection) :
+        m_IndexableCollection(IndexableCollection)
+    {
+    };
+
+    const _IndexType &Size() const { return m_Size; }
+
+    // Returns the index of the first list element.
+    // The return value is TIndexList::EnvVal if the list is empty.
+    const _IndexType &Begin() const
+    {
+        return m_BeginIndex; 
+    }
+
+    const _IndexType &Next(_IndexType Index)
+    {
+        return m_IndexableCollection[Index].Next;
+    }
+
+    const _IndexType &Prev(_IndexType Index)
+    {
+        return m_IndexableCollection[Index].Prev;
+    }
+
+    void InsertBefore(_IndexType Index, _IndexType Next)
+    {
+        m_IndexableCollection[Index].Next = Next;
+        m_IndexableCollection[Index].Prev = Next != EndVal ? m_IndexableCollection[Next].Prev : EndVal;
+    }
+};
+
+
+//------------------------------------------------------------------------------------------------
 // Describes an array of bits
 template<class _SizeType, _SizeType _Size>
 class TBitArray
