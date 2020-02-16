@@ -20,9 +20,6 @@ namespace BuddySuballocatorTest
 			using IndexTableType = decltype(IndexTable);
 			using ListType = TIndexList<IndexType, IndexTableType>;
 
-			// Initialize the table to size 16
-//			IndexTableType IndexTable(16);
-
 			ListType IndexList(IndexTable);
 
 			Assert::IsTrue(IndexList.Size() == 0);
