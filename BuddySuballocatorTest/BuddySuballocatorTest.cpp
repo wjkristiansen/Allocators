@@ -26,8 +26,9 @@ namespace BuddySuballocatorTest
 			// Build list from the indices in TestIndices
 			IndexType First = TestIndices[0];
 			IndexType Last = TestIndices[0];
-			int i = 0;
-			for (; i < _countof(TestIndices); ++i)
+			IndexType i = 0;
+			IndexType NodeCount = IndexType(_countof(TestIndices));
+			for (; i < NodeCount; ++i)
 			{
 				IndexType Index = TestIndices[i];
 
@@ -54,6 +55,75 @@ namespace BuddySuballocatorTest
 				{
 					break;
 				}
+			}
+
+			// Iterate through the list in reverse order and make sure the values match the order added
+			for (IndexType Index = IndexList.Last();;)
+			{
+				Assert::IsTrue(TestIndices[i] == Index);
+
+				// Prev element
+				Index = IndexList.Prev(Index, IndexTable);
+				++i;
+
+				// The start of the list is reached when we loop back to the last node
+				if (Index == IndexList.Last())
+				{
+					break;
+				}
+			}
+
+			// Remove a node from the middle...
+			{
+				IndexList.RemoveAt(6, IndexTable);
+				Assert::IsTrue(3 == IndexList.Prev(0, IndexTable));
+				Assert::IsTrue(0 == IndexList.Next(3, IndexTable));
+				NodeCount--;
+				Assert::IsTrue(NodeCount == IndexList.Size());
+			}
+
+			// Remove the last node...
+			{
+				IndexList.RemoveAt(15, IndexTable);
+				Assert::IsTrue(1 == IndexList.Last());
+				Assert::IsTrue(IndexList.First() == IndexList.Next(IndexList.Last(), IndexTable));
+				Assert::IsTrue(IndexList.Last() == IndexList.Prev(IndexList.First(), IndexTable));
+				NodeCount--;
+				Assert::IsTrue(NodeCount == IndexList.Size());
+			}
+
+			// Remove the first node...
+			{
+				IndexList.RemoveAt(5, IndexTable);
+				Assert::IsTrue(1 == IndexList.Last());
+				Assert::IsTrue(IndexList.First() == IndexList.Next(IndexList.Last(), IndexTable));
+				Assert::IsTrue(IndexList.Last() == IndexList.Prev(IndexList.First(), IndexTable));
+				NodeCount--;
+				Assert::IsTrue(NodeCount == IndexList.Size());
+			}
+
+			// Remove down to a single node...
+			while (NodeCount > 1)
+			{
+				IndexList.RemoveAt(IndexList.Last(), IndexTable);
+				NodeCount--;
+			}
+
+			Assert::IsTrue(1 == IndexList.Size());
+			Assert::IsTrue(8 == IndexList.First());
+			Assert::IsTrue(8 == IndexList.Last());
+			Assert::IsTrue(8 == IndexList.Next(8, IndexTable));
+			Assert::IsTrue(8 == IndexList.Prev(8, IndexTable));
+
+			// Remove the final node
+			IndexList.RemoveAt(8, IndexTable);
+			Assert::IsTrue(0 == IndexList.Size());
+
+			// Verify all nodes in the IndexTable are [0, 0]
+			for (auto i = 0; i < _countof(TestIndices); ++i)
+			{
+				Assert::IsTrue(IndexTable[i].Next == 0);
+				Assert::IsTrue(IndexTable[i].Prev == 0);
 			}
 		}
 	};
