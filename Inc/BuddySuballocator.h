@@ -85,62 +85,137 @@ constexpr unsigned long Log2Ceil(unsigned long long value)
 }
 
 //------------------------------------------------------------------------------------------------
-// Collection of indices linked bi-directionally.  Nodes are allocated from an indexable collection
-// provided during TIndexList construction.  This collection can be an array or a class
-// with read/write operator[].
-// The value _IndexType(0) - 1 is reserved as a terminal value, thus the max unsigned _IndexType value
-// cannot be used as a legitimate index.  For example, if _IndexType is unsigned char, the value 255
-// represents the terminal value, making 
-template<class _IndexableCollectionType, class _IndexType>
+// Collection of indices linked bi-directionally.  List nodes are allocated from an index table
+// of type _IndexTableType.  _IndexTableType must be indexable by type _IndexType and return 
+// a reference to a TIndexList::NodeType using operator[] such as an array of TIndexList::NodeType
+// elements or std::vector<TIndexList::NodeType>.  
+// 
+// All values in the list must be uniqe, no value can exist in the list more than once.
+//
+// TIndexList assumes all unallocated nodes are initialized to [0,0].
+//
+// There is no reserved terminal value.  This is essentially a ring linked list, meaning
+// that Next(Last()) == First().
+//
+// If the index table is shared with another IIndexList, care must be taken to avoid
+// storing any given index in both lists.
+//
+// Example list:
+// 1 <-> 5 <-> 3 <-> 2 <-> 7
+//
+//          -----------------------------------------------------------------
+//    Index |   0   |   1   |   2   |   3   |   4   |   5   |   6   |   7   |
+//          -----------------------------------------------------------------
+//     Next |       |   5   |   7   |   2   |       |   3   |       |   1   |
+//          -----------------------------------------------------------------
+//     Prev |       |   7   |   3   |   5   |       |   1   |       |   2   |
+//          -----------------------------------------------------------------
+template<class _IndexType>
 class TIndexList
 {
 public:
+
     //------------------------------------------------------------------------------------------------
     // Node data type.
     struct NodeType
     {
-        _IndexType Next;
-        _IndexType Prev;
+        NodeType() = default;
+        _IndexType Next = 0;
+        _IndexType Prev = 0;
     };
 
-    const _IndexType EndVal = _IndexType(0) - 1;
-
 private:
-    _IndexType m_Size = 0;
-    _IndexableCollectionType &m_IndexableCollection;
-    _IndexType m_BeginIndex = EndVal;
+    _IndexType m_Size = _IndexType(0);
+    _IndexType m_FirstIndex = 0;
+    _IndexType m_LastIndex = 0;
 
 public:
 
     // Constructs an empty list using the given IndexableCollection to store nodes.
-    TIndexList(_IndexableCollectionType &IndexableCollection) :
-        m_IndexableCollection(IndexableCollection)
+    TIndexList()
     {
     };
 
     const _IndexType &Size() const { return m_Size; }
 
     // Returns the index of the first list element.
-    // The return value is TIndexList::EnvVal if the list is empty.
-    const _IndexType &Begin() const
+    // The return value is 0 if the list is empty.
+    // Caller should be careful to ensure Size() > 0 before
+    // assuming the return value is valid.
+    const _IndexType& First() const
     {
-        return m_BeginIndex; 
+        return m_FirstIndex;
     }
 
-    const _IndexType &Next(_IndexType Index)
+    // Returns the index of the last list element.
+    // The return value is 0 if the list is empty.
+    // Caller should be careful to ensure Size() > 0 before
+    // assuming the return value is valid.
+    const _IndexType& Last() const
     {
-        return m_IndexableCollection[Index].Next;
+        return m_LastIndex;
     }
 
-    const _IndexType &Prev(_IndexType Index)
+    template<class _IndexTableType>
+    const _IndexType &Next(_IndexType Index, _IndexTableType& IndexTable)
     {
-        return m_IndexableCollection[Index].Prev;
+        return IndexTable[Index].Next;
     }
 
-    void InsertBefore(_IndexType Index, _IndexType Next)
+    template<class _IndexTableType>
+    const _IndexType &Prev(_IndexType Index, _IndexTableType& IndexTable)
     {
-        m_IndexableCollection[Index].Next = Next;
-        m_IndexableCollection[Index].Prev = Next != EndVal ? m_IndexableCollection[Next].Prev : EndVal;
+        return IndexTable[Index].Prev;
+    }
+
+    template<class _IndexTableType>
+    void PushFront(_IndexType Index, _IndexTableType& IndexTable)
+    {
+        if (0 == Size())
+        {
+            IndexTable[Index].Prev = Index;
+            IndexTable[Index].Next = Index;
+            m_LastIndex = Index;
+        }
+        else
+        {
+            _IndexType Prev = Last();
+            _IndexType Next = First();
+            IndexTable[Index].Prev = Prev;
+            IndexTable[Index].Next = Next;
+            IndexTable[Next].Prev = Index;
+            IndexTable[Prev].Next = Index;
+        }
+        m_FirstIndex = Index;
+        ++m_Size;
+    }
+
+    template<class _IndexTableType>
+    void RemoveAt(_IndexType Index, _IndexTableType& IndexTable)
+    {
+        if (--m_Size == 0)
+        {
+            m_FirstIndex = 0;
+            m_LastIndex = 0;
+        }
+        else
+        {
+            _IndexType Prev = IndexTable[Index].Prev;
+            _IndexType Next = IndexTable[Index].Next;
+            IndexTable[Next].Prev = Prev;
+            IndexTable[Prev].Next = Next;
+            if (m_FirstIndex == Index)
+            {
+                m_FirstIndex = Next;
+            }
+            if (m_LastIndex == Index)
+            {
+                m_LastIndex = Prev;
+            }
+        }
+
+        IndexTable[Index].Prev = 0;
+        IndexTable[Index].Next = 0;
     }
 };
 
@@ -247,7 +322,7 @@ struct TBuddyBlock
 // StateIndex = (1 << Level) + IndexInLevel - 1
 // ParentStateIndex = (StateIndex - 1) >> 1
 
-template<class _SizeType, _SizeType _Size>
+template<class _SizeType, _SizeType _Size, class _IndexTableType>
 class TBuddySuballocator
 {
     // Maximum fragmentation can pathologically occur if the full set
@@ -260,8 +335,8 @@ class TBuddySuballocator
     static const _SizeType NumNodes = _Size / 2;
     static const _SizeType MaxOrder = Log2Ceil(_Size);
     static const _SizeType StateBitArraySize = _Size / 2;
-    typename TSharedIndexNodesList<_SizeType>::IndexNode m_BlockNodes[NumNodes];
-    typename TSharedIndexNodesList<_SizeType> m_FreeBlocks[MaxOrder];
+    typename TIndexList<_SizeType>::IndexNode m_BlockNodes[NumNodes];
+    typename TIndexList<_SizeType> m_FreeBlocks[MaxOrder];
     typename TBitArray<_SizeType, NumNodes> m_StateBitArray;
 
     static _SizeType BuddyOffset(_SizeType Offset, _SizeType Order)
@@ -290,7 +365,7 @@ class TBuddySuballocator
         return m_StateBitArray[StateIndex];
     }
 
-    TAllocationBlock<_SizeType> AllocateImpl(_SizeType Size)
+    TBuddyBlock<_SizeType> AllocateImpl(_SizeType Size)
     {
         auto Order = Log2Ceil(Size);
 
@@ -303,17 +378,17 @@ class TBuddySuballocator
 public:
     TBuddySuballocator() = default;
 
-    TAllocationBlock<_SizeType> Allocate(_SizeType Size)
+    TBuddyBlock<_SizeType> Allocate(_SizeType Size)
     {
-        if (Size > _Size || Order == -1UL)
+        if (Size > _Size /*|| Order == -1UL*/)
         {
-            return TAllocationBlock<_SizeType> { 0, 0 }; // Failed allocation
+            return TBuddyBlock<_SizeType> { 0, 0 }; // Failed allocation
         }
 
         return AllocateImpl(Size);
     }
 
-    void FreeUnits(const TAllocationBlock<_SizeType> &Allocation)
+    void FreeUnits(const TBuddyBlock<_SizeType> &Allocation)
     {
 
     }
