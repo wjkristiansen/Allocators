@@ -85,10 +85,19 @@ constexpr unsigned long Log2Ceil(unsigned long long value)
 }
 
 //------------------------------------------------------------------------------------------------
+// Node data type.
+template<class _IndexType>
+struct IndexTableNode
+{
+    _IndexType Next = 0;
+    _IndexType Prev = 0;
+};
+
+//------------------------------------------------------------------------------------------------
 // Collection of indices linked bi-directionally.  List nodes are allocated from an index table
 // of type _IndexTableType.  _IndexTableType must be indexable by type _IndexType and return 
-// a reference to a TIndexList::NodeType using operator[] such as an array of TIndexList::NodeType
-// elements or std::vector<TIndexList::NodeType>.  
+// a reference to a IndexTableNode using operator[] such as an array of IndexTableNode
+// elements or std::vector<IndexTableNode>.  
 // 
 // All values in the list must be uniqe, no value can exist in the list more than once.
 //
@@ -110,114 +119,168 @@ constexpr unsigned long Log2Ceil(unsigned long long value)
 //          -----------------------------------------------------------------
 //     Prev |       |   7   |   3   |   5   |       |   1   |       |   2   |
 //          -----------------------------------------------------------------
-template<class _IndexType>
+template<class _IndexType, class _IndexTableType>
 class TIndexList
 {
 public:
 
-    //------------------------------------------------------------------------------------------------
-    // Node data type.
-    struct NodeType
+    class Iterator
     {
-        NodeType() = default;
-        _IndexType Next = 0;
-        _IndexType Prev = 0;
+        const TIndexList *m_pIndexList;
+        _IndexType m_Index = 0;
+        bool m_IsEnd = true;
+
+    public:
+        Iterator(const TIndexList *pIndexList) : 
+            m_pIndexList(pIndexList) {};
+        
+        Iterator(const TIndexList *pIndexList, _IndexType Index) :
+            m_pIndexList(pIndexList),
+            m_Index(Index),
+            m_IsEnd(false) {}
+
+        Iterator(const Iterator& o) : 
+            m_pIndexList(o.m_pIndexList), 
+            m_Index(o.m_Index), 
+            m_IsEnd(o.m_IsEnd) {}
+
+        Iterator& operator=(const Iterator& o) 
+        {
+            m_pIndexList = o.m_pIndexList;
+            m_Index = o.m_Index; 
+            m_IsEnd = o.m_IsEnd; 
+
+            return *this;
+        }
+
+        bool operator==(const Iterator& o) const
+        {
+            return 
+                (m_pIndexList == o.m_pIndexList) && 
+                ((m_IsEnd && o.m_IsEnd) || (!m_IsEnd && !o.m_IsEnd && (m_Index == o.m_Index)));
+        }
+
+        bool operator!=(const Iterator& o) const
+        {
+            return !operator==(o);
+        }
+
+        _IndexType Index() const { return m_Index; }
+        void MoveNext();
+        void MovePrev();
     };
 
 private:
     _IndexType m_Size = _IndexType(0);
     _IndexType m_FirstIndex = 0;
     _IndexType m_LastIndex = 0;
+    _IndexTableType& m_IndexTable;
 
 public:
 
     // Constructs an empty list using the given IndexableCollection to store nodes.
-    TIndexList()
+    TIndexList(_IndexTableType& IndexTable) :
+        m_IndexTable(IndexTable)
     {
     };
 
     const _IndexType &Size() const { return m_Size; }
 
-    // Returns the index of the first list element.
-    // The return value is 0 if the list is empty.
-    // Caller should be careful to ensure Size() > 0 before
-    // assuming the return value is valid.
-    const _IndexType& First() const
+    Iterator PushFront(_IndexType Index)
     {
-        return m_FirstIndex;
-    }
+        Iterator It(this, Index);
 
-    // Returns the index of the last list element.
-    // The return value is 0 if the list is empty.
-    // Caller should be careful to ensure Size() > 0 before
-    // assuming the return value is valid.
-    const _IndexType& Last() const
-    {
-        return m_LastIndex;
-    }
-
-    template<class _IndexTableType>
-    const _IndexType &Next(_IndexType Index, _IndexTableType& IndexTable)
-    {
-        return IndexTable[Index].Next;
-    }
-
-    template<class _IndexTableType>
-    const _IndexType &Prev(_IndexType Index, _IndexTableType& IndexTable)
-    {
-        return IndexTable[Index].Prev;
-    }
-
-    template<class _IndexTableType>
-    void PushFront(_IndexType Index, _IndexTableType& IndexTable)
-    {
         if (0 == Size())
         {
-            IndexTable[Index].Prev = Index;
-            IndexTable[Index].Next = Index;
+            // New node in empty list
+            m_IndexTable[Index].Prev = Index;
+            m_IndexTable[Index].Next = Index;
             m_LastIndex = Index;
         }
         else
         {
-            _IndexType Prev = Last();
-            _IndexType Next = First();
-            IndexTable[Index].Prev = Prev;
-            IndexTable[Index].Next = Next;
-            IndexTable[Next].Prev = Index;
-            IndexTable[Prev].Next = Index;
+            // Insert the node at the start of the list
+            _IndexType Prev = m_LastIndex;
+            _IndexType Next = m_FirstIndex;
+            m_IndexTable[Index].Prev = Prev;
+            m_IndexTable[Index].Next = Next;
+            m_IndexTable[Next].Prev = Index;
+            m_IndexTable[Prev].Next = Index;
         }
         m_FirstIndex = Index;
         ++m_Size;
+
+        return It;
     }
 
-    template<class _IndexTableType>
-    void RemoveAt(_IndexType Index, _IndexTableType& IndexTable)
+    // Returns the Iterator for the first element in the list.
+    Iterator Begin() const
     {
+        return Iterator(this, m_FirstIndex);
+    }
+
+    // Returns the end iterator.
+    Iterator End() const
+    {
+        return Iterator(this);
+    }
+
+    // Removes the element for the given iterator location.
+    // Returns the Iterator for the next location in the list.
+    // Returns End() if the list is empty or the given Index was not in the list.
+    Iterator Remove(_IndexType Index)
+    {
+        // Initial Result is the End iterator
+        Iterator It = End(); 
+
         if (--m_Size == 0)
         {
+            // List is now empty
             m_FirstIndex = 0;
             m_LastIndex = 0;
         }
         else
         {
-            _IndexType Prev = IndexTable[Index].Prev;
-            _IndexType Next = IndexTable[Index].Next;
-            IndexTable[Next].Prev = Prev;
-            IndexTable[Prev].Next = Next;
+            _IndexType Prev = m_IndexTable[Index].Prev;
+            _IndexType Next = m_IndexTable[Index].Next;
+            m_IndexTable[Next].Prev = Prev;
+            m_IndexTable[Prev].Next = Next;
+
             if (m_FirstIndex == Index)
             {
                 m_FirstIndex = Next;
             }
+
             if (m_LastIndex == Index)
             {
                 m_LastIndex = Prev;
             }
+            else
+            {
+                It = Iterator(this, Next);
+            }
         }
 
-        IndexTable[Index].Prev = 0;
-        IndexTable[Index].Next = 0;
+        m_IndexTable[Index].Prev = 0;
+        m_IndexTable[Index].Next = 0;
+
+        return It;
     }
 };
+
+template<class _IndexType, class _IndexTableType>
+void TIndexList<_IndexType, _IndexTableType>::Iterator::MoveNext()
+{
+    m_Index = m_pIndexList->m_IndexTable[m_Index].Next;
+    m_IsEnd = m_Index == m_pIndexList->m_FirstIndex;
+}
+
+template<class _IndexType, class _IndexTableType>
+void TIndexList<_IndexType, _IndexTableType>::Iterator::MovePrev()
+{
+    m_Index = m_pIndexList->m_IndexTable[m_Index].Prev;
+    m_IsEnd = m_Index == m_pIndexList->m_LastIndex;
+}
 
 
 //------------------------------------------------------------------------------------------------
@@ -335,8 +398,8 @@ class TBuddySuballocator
     static const _SizeType NumNodes = _Size / 2;
     static const _SizeType MaxOrder = Log2Ceil(_Size);
     static const _SizeType StateBitArraySize = _Size / 2;
-    typename TIndexList<_SizeType>::IndexNode m_BlockNodes[NumNodes];
-    typename TIndexList<_SizeType> m_FreeBlocks[MaxOrder];
+    typename TIndexList<_SizeType, _IndexTableType>::IndexNode m_BlockNodes[NumNodes];
+    typename TIndexList<_SizeType, _IndexTableType> m_FreeBlocks[MaxOrder];
     typename TBitArray<_SizeType, NumNodes> m_StateBitArray;
 
     static _SizeType BuddyOffset(_SizeType Offset, _SizeType Order)
