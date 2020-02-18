@@ -333,13 +333,21 @@ struct TBuddyBlock
 //------------------------------------------------------------------------------------------------
 // TBuddySuballocator class
 // 
-// Sub-allocates ranges of out of a set of all integers between 0 and N - 1 using a buddy-allocation
-// algorithm similar to that described at https://en.wikipedia.org/wiki/Buddy_memory_allocation, N being the size
+// Manages allocation of logical ranges of integer values using an algorithm similar to that
+// described at https://en.wikipedia.org/wiki/Buddy_memory_allocation, N being the size
 // of the allocatable space.
 //
 // Allocated ranges are represented as allocation-blocks with an offset to the start of the allocation
 // and the size of the allocated range.  Allocation-block sizes are the smallest power of two greater-than
 // or equal-to the requested allocation size.
+//
+// Buddy allocation is often used in operating systems to manage system memory allocations of various sizes.  
+// Free blocks of a given size are itrusively linked so that available blocks can be quickly allocated, split, 
+// or merged.  Since the buddy suballocator is used only for logical rather than physical allocations, such intrusive
+// links are not availale.  Therefore, memory must be set aside to contain these links.  The buddy suballocator 
+// refers to this memory as an IndexTable.  The index table is an indexable collections (e.g. an array)
+// of N/2 IndexTableNode elements.  This collection is a proxy for the intrusive links that buddy allocators
+// typically use for system memory allocation.
 // 
 // _Size is the full size of the allocatable range.  _Size must be a power of two.
 //
@@ -388,12 +396,6 @@ struct TBuddyBlock
 template<class _SizeType, _SizeType _Size, class _IndexTableType>
 class TBuddySuballocator
 {
-    // Maximum fragmentation can pathologically occur if the full set
-    // of order 0 (size 1) ranges are individually allocated followed by freeing every other allocation.
-    // The resulting linked list of free order 0 entries is _Size / 2.
-    // Note that for very large ranges, the node pool can still occupy a large
-    // amount of space.
-    //
     // The first NumOrders nodes are terminal nodes
     static const _SizeType NumNodes = _Size / 2;
     static const _SizeType MaxOrder = Log2Ceil(_Size);
@@ -402,6 +404,7 @@ class TBuddySuballocator
     typename TIndexList<_SizeType, _IndexTableType> m_FreeBlocks[MaxOrder];
     typename TBitArray<_SizeType, NumNodes> m_StateBitArray;
 
+    // Returns the location of the buddy block
     static _SizeType BuddyOffset(_SizeType Offset, _SizeType Order)
     {
         _SizeType Size = 1 << Order;
