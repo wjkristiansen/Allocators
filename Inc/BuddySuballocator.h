@@ -352,8 +352,15 @@ struct TBuddyBlock
 // _Size is the full size of the allocatable range.  _Size must be a power of two.
 //
 // _SizeType is the type of integers representing the allocation space.
+//
+// Order = Log2Ceil(Size)
+// BlockSize = 2 ^ Order (i.e. 1 << Order)
+// BuddyOffset = Offset ^ BlockSize
+// ParentOffset = min(Offset, BuddyOffset) = Offset & (_Size - 2)
 // 
 // For example: Given a space of size 16 - the following graph represents the set of possible allocations:
+//
+// Order = 4
 //
 // Order | Block Offsets
 //       |-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|
@@ -368,14 +375,9 @@ struct TBuddyBlock
 //   4   |                                                              0000                                                             |
 //       |-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|
 //
+// Using this sample, the full set of splittable allocation blocks can be identified using a unique id as follows:
 //
-// Using this sample, the set of non-splittable allocation blocks can be identified using a unique id as follows:
-//
-// Order = Log2Ceil(Size) = 4
-// BlockSize = 2 ^ Order (i.e. 1 << Order)
-// BuddyOffset = Offset ^ BlockSize
-//
-// Level | StateIndex
+// Level | BlockId
 //       |-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|
 //   4   |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |
 //       |-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|
@@ -390,8 +392,9 @@ struct TBuddyBlock
 // 
 // Level = MaxOrder - Order
 // IndexInLevel = Offset >> Order
-// StateIndex = (1 << Level) + IndexInLevel - 1
-// ParentStateIndex = (StateIndex - 1) >> 1
+// BlockId = (1 << Level) + IndexInLevel - 1
+// ParentId = (BlockId - 1) >> 1
+//
 
 template<class _SizeType, _SizeType _Size, class _IndexTableType>
 class TBuddySuballocator
