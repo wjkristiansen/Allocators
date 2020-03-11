@@ -123,6 +123,8 @@ namespace BuddySuballocatorTest
 		TEST_METHOD(BasicSuballocatorTest)
 		{
 			TBuddySuballocator<unsigned char, 256> TestSuballocator;
+
+			auto Block = TestSuballocator.Allocate(6);
 		}
 	};
 }

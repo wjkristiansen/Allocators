@@ -203,11 +203,11 @@ public:
         return It;
     }
 
-    void PopFront()
+    void PopFront(_IndexTableType &IndexTable)
     {
         if (Size() > 0)
         {
-            Remove(m_FirstIndex);
+            Remove(m_FirstIndex, IndexTable);
         }
     }
 
@@ -461,7 +461,7 @@ class TBuddySuballocator
                 auto It = m_FreeAllocations[Order].Begin();
                 auto Location = It.Index();
                 Block = TBuddyBlock<_IndexType>(Location, Order);
-                m_FreeAllocations[Order].PopFront();
+                m_FreeAllocations[Order].PopFront(m_AllocationTable);
                 if (Order < MaxOrder)
                 {
                     auto ParentBlock = TBuddySuballocator::ParentBlock(Block);
@@ -477,7 +477,7 @@ class TBuddySuballocator
                 if (ParentBlock.Order != -1)
                 {
                     // Split the parent block
-                    size_t BlockSize = 1 << Order;
+                    _IndexType BlockSize = 1 << Order;
                     Block = TBuddyBlock<_IndexType>(ParentBlock.Location, Order);
                     m_FreeAllocations[Order].PushFront(ParentBlock.Location + BlockSize, m_AllocationTable);
                     m_StateBitArray.Set(StateIndex, true); // Mark the parent as split
@@ -519,7 +519,7 @@ public:
 
     TBuddyBlock<_IndexType> Allocate(size_t Size)
     {
-        _IndexType Order = Log2Ceil(Size);
+        _IndexType Order = (_IndexType) Log2Ceil(Size);
         return AllocateImpl(Order);
     }
 
