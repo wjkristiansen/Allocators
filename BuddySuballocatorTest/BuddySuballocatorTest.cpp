@@ -13,14 +13,14 @@ namespace BuddySuballocatorTest
 		TEST_METHOD(IndexListTest)
 		{
 			using IndexType = unsigned __int8;
-			using IndexTableNodeType = IndexTableNode<IndexType>;
+			using IndexNodeType = IndexNode<IndexType>;
 
-//			IndexTableNodeType IndexTable[16];
-			std::vector<IndexTableNodeType> IndexTable(16);
+//			IndexNodeType IndexTable[16];
+			std::vector<IndexNodeType> IndexTable(16);
 			using IndexTableType = decltype(IndexTable);
 			using ListType = TIndexList<IndexType, IndexTableType>;
 
-			ListType IndexList(IndexTable);
+			ListType IndexList;
 
 			Assert::IsTrue(IndexList.Size() == 0);
 
@@ -35,11 +35,11 @@ namespace BuddySuballocatorTest
 			{
 				IndexType Index = TestIndices[i];
 
-				auto It = IndexList.PushFront(Index);
+				auto It = IndexList.PushFront(Index, IndexTable);
 				Assert::IsTrue(IndexList.Size() == 1 + i);
 				Assert::IsTrue(It.Index() == Index);
 				Assert::IsTrue(IndexList.Begin() == It);
-				It.MoveNext();
+				It.MoveNext(IndexTable);
 				if (i == 0)
 				{
 					Assert::IsTrue(It == IndexList.End());
@@ -52,7 +52,7 @@ namespace BuddySuballocatorTest
 			}
 
 			// Iterate through the list and make sure the values match the reverse order added
-			for (auto It = IndexList.Begin(); It != IndexList.End(); It.MoveNext())
+			for (auto It = IndexList.Begin(); It != IndexList.End(); It.MoveNext(IndexTable))
 			{
 				--i;
 				Assert::IsTrue(TestIndices[i] == It.Index());
@@ -60,10 +60,10 @@ namespace BuddySuballocatorTest
 
 			// Remove a node from the middle...
 			{
-				auto It = IndexList.Remove(6);
+				auto It = IndexList.Remove(6, IndexTable);
 
 				Assert::IsTrue(0 == It.Index());
-				It.MovePrev();
+				It.MovePrev(IndexTable);
 				Assert::IsTrue(3 == It.Index());
 
 				NodeCount--;
@@ -72,7 +72,7 @@ namespace BuddySuballocatorTest
 
 			// Remove the last node in the list...
 			{
-				auto It = IndexList.Remove(15);
+				auto It = IndexList.Remove(15, IndexTable);
 				Assert::IsTrue(It == IndexList.End());
 				NodeCount--;
 				Assert::IsTrue(NodeCount == IndexList.Size());
@@ -80,10 +80,10 @@ namespace BuddySuballocatorTest
 
 			// Remove the first node in the list...
 			{
-				auto It = IndexList.Remove(5);
+				auto It = IndexList.Remove(5, IndexTable);
 
 				Assert::IsTrue(8 == It.Index());
-				It.MovePrev();
+				It.MovePrev(IndexTable);
 				Assert::IsTrue(It == IndexList.End());
 
 				NodeCount--;
@@ -93,22 +93,22 @@ namespace BuddySuballocatorTest
 			// Remove down to a single node...
 			while (NodeCount > 1)
 			{
-				IndexList.Remove(IndexList.Begin().Index());
+				IndexList.Remove(IndexList.Begin().Index(), IndexTable);
 				NodeCount--;
 			}
 
 			{
 				auto It = IndexList.Begin();
 				Assert::IsTrue(1 == It.Index());
-				It.MovePrev();
+				It.MovePrev(IndexTable);
 				Assert::IsTrue(IndexList.End() == It);
 				It = IndexList.Begin();
-				It.MoveNext();
+				It.MoveNext(IndexTable);
 				Assert::IsTrue(IndexList.End() == It);
 			}
 
 			// Remove the final node
-			IndexList.Remove(IndexList.Begin().Index());
+			IndexList.Remove(IndexList.Begin().Index(), IndexTable);
 
 			Assert::IsTrue(0 == IndexList.Size());
 
@@ -118,6 +118,13 @@ namespace BuddySuballocatorTest
 				Assert::IsTrue(IndexTable[i].Next == 0);
 				Assert::IsTrue(IndexTable[i].Prev == 0);
 			}
+		}
+
+		TEST_METHOD(BasicSuballocatorTest)
+		{
+			TBuddySuballocator<unsigned char, 256> TestSuballocator;
+
+			auto Block = TestSuballocator.Allocate(6);
 		}
 	};
 }

@@ -4,12 +4,6 @@
 
 #pragma once
 
-//================================================================================================
-// BuddySuballocator
-//================================================================================================
-
-#pragma once
-
 //------------------------------------------------------------------------------------------------
 // Returns the position of the most significant bit or 0xffffffff if no bits were set
 constexpr unsigned long BitScanMSB(unsigned long mask)
@@ -67,27 +61,27 @@ constexpr unsigned long BitScanMSB(unsigned long mask)
 
 //------------------------------------------------------------------------------------------------
 // Returns the position of the most significant bit or 0xffffffff if no bits were set
-constexpr unsigned long  BitScanMSB64(unsigned long long mask)
+constexpr unsigned long BitScanMSB64(unsigned long long mask)
 {
     return BitScanMSB((mask & 0xffffffff00000000) ? unsigned long(mask >> 32) : unsigned long(mask));
 }
 
 //------------------------------------------------------------------------------------------------
-constexpr unsigned long Log2Ceil(unsigned long value)
+constexpr unsigned long Log2Ceil(unsigned int value)
 {
-    return value > 0 ? 1 + BitScanMSB(value - 1) : ~0UL;
+    return (unsigned long)(value > 0 ? 1 + BitScanMSB((long) value - 1) : ~0UL);
 }
 
 //------------------------------------------------------------------------------------------------
-constexpr unsigned long Log2Ceil(unsigned long long value)
+constexpr unsigned long Log2Ceil(unsigned __int64 value)
 {
-    return value > 0 ? 1 + BitScanMSB64(value - 1) : ~0UL;
+    return (unsigned long)(value > 0 ? 1 + BitScanMSB64((unsigned long long) value - 1) : ~0UL);
 }
 
 //------------------------------------------------------------------------------------------------
 // Node data type.
 template<class _IndexType>
-struct IndexTableNode
+struct IndexNode
 {
     _IndexType Next = 0;
     _IndexType Prev = 0;
@@ -96,8 +90,8 @@ struct IndexTableNode
 //------------------------------------------------------------------------------------------------
 // Collection of indices linked bi-directionally.  List nodes are allocated from an index table
 // of type _IndexTableType.  _IndexTableType must be indexable by type _IndexType and return 
-// a reference to a IndexTableNode using operator[] such as an array of IndexTableNode
-// elements or std::vector<IndexTableNode>.  
+// a reference to a IndexNode using operator[] such as an array of IndexNode
+// elements or std::vector<IndexNode>.  
 // 
 // All values in the list must be uniqe, no value can exist in the list more than once.
 //
@@ -166,35 +160,31 @@ public:
         }
 
         _IndexType Index() const { return m_Index; }
-        void MoveNext();
-        void MovePrev();
+        void MoveNext(_IndexTableType &IndexTable);
+        void MovePrev(_IndexTableType &IndexTable);
     };
 
 private:
-    _IndexType m_Size = _IndexType(0);
+    size_t m_Size = 0;
     _IndexType m_FirstIndex = 0;
     _IndexType m_LastIndex = 0;
-    _IndexTableType& m_IndexTable;
 
 public:
 
     // Constructs an empty list using the given IndexableCollection to store nodes.
-    TIndexList(_IndexTableType& IndexTable) :
-        m_IndexTable(IndexTable)
-    {
-    };
+    TIndexList() = default;
 
-    const _IndexType &Size() const { return m_Size; }
+    const size_t Size() const { return m_Size; }
 
-    Iterator PushFront(_IndexType Index)
+    Iterator PushFront(_IndexType Index, _IndexTableType &IndexTable)
     {
         Iterator It(this, Index);
 
         if (0 == Size())
         {
             // New node in empty list
-            m_IndexTable[Index].Prev = Index;
-            m_IndexTable[Index].Next = Index;
+            IndexTable[Index].Prev = Index;
+            IndexTable[Index].Next = Index;
             m_LastIndex = Index;
         }
         else
@@ -202,15 +192,23 @@ public:
             // Insert the node at the start of the list
             _IndexType Prev = m_LastIndex;
             _IndexType Next = m_FirstIndex;
-            m_IndexTable[Index].Prev = Prev;
-            m_IndexTable[Index].Next = Next;
-            m_IndexTable[Next].Prev = Index;
-            m_IndexTable[Prev].Next = Index;
+            IndexTable[Index].Prev = Prev;
+            IndexTable[Index].Next = Next;
+            IndexTable[Next].Prev = Index;
+            IndexTable[Prev].Next = Index;
         }
         m_FirstIndex = Index;
         ++m_Size;
 
         return It;
+    }
+
+    void PopFront(_IndexTableType &IndexTable)
+    {
+        if (Size() > 0)
+        {
+            Remove(m_FirstIndex, IndexTable);
+        }
     }
 
     // Returns the Iterator for the first element in the list.
@@ -228,7 +226,7 @@ public:
     // Removes the element for the given iterator location.
     // Returns the Iterator for the next location in the list.
     // Returns End() if the list is empty or the given Index was not in the list.
-    Iterator Remove(_IndexType Index)
+    Iterator Remove(_IndexType Index, _IndexTableType &IndexTable)
     {
         // Initial Result is the End iterator
         Iterator It = End(); 
@@ -241,10 +239,10 @@ public:
         }
         else
         {
-            _IndexType Prev = m_IndexTable[Index].Prev;
-            _IndexType Next = m_IndexTable[Index].Next;
-            m_IndexTable[Next].Prev = Prev;
-            m_IndexTable[Prev].Next = Next;
+            _IndexType Prev = IndexTable[Index].Prev;
+            _IndexType Next = IndexTable[Index].Next;
+            IndexTable[Next].Prev = Prev;
+            IndexTable[Prev].Next = Next;
 
             if (m_FirstIndex == Index)
             {
@@ -261,48 +259,48 @@ public:
             }
         }
 
-        m_IndexTable[Index].Prev = 0;
-        m_IndexTable[Index].Next = 0;
+        IndexTable[Index].Prev = 0;
+        IndexTable[Index].Next = 0;
 
         return It;
     }
 };
 
 template<class _IndexType, class _IndexTableType>
-void TIndexList<_IndexType, _IndexTableType>::Iterator::MoveNext()
+void TIndexList<_IndexType, _IndexTableType>::Iterator::MoveNext(_IndexTableType &IndexTable)
 {
-    m_Index = m_pIndexList->m_IndexTable[m_Index].Next;
+    m_Index = IndexTable[m_Index].Next;
     m_IsEnd = m_Index == m_pIndexList->m_FirstIndex;
 }
 
 template<class _IndexType, class _IndexTableType>
-void TIndexList<_IndexType, _IndexTableType>::Iterator::MovePrev()
+void TIndexList<_IndexType, _IndexTableType>::Iterator::MovePrev(_IndexTableType &IndexTable)
 {
-    m_Index = m_pIndexList->m_IndexTable[m_Index].Prev;
+    m_Index = IndexTable[m_Index].Prev;
     m_IsEnd = m_Index == m_pIndexList->m_LastIndex;
 }
 
 
 //------------------------------------------------------------------------------------------------
 // Describes an array of bits
-template<class _SizeType, _SizeType _Size>
+template<class _IndexType, size_t _Size>
 class TBitArray
 {
-    static _SizeType NumBytes = _Size / 8;
-    char Bytes[NumBytes] = {};
+    static const size_t NumBytes = _Size / 8;
+    char Bytes[NumBytes] = {0};
 
 public:
-    bool Get(_SizeType Index) const
+    bool Get(_IndexType Index) const
     {
-        _SizeType ByteIndex = Index / 8;
-        _SizeType Mask = 1 << (Index & 0xff);
+        _IndexType ByteIndex = Index / 8;
+        _IndexType Mask = 1 << (Index & 0xff);
         return (Bytes[ByteIndex] & Mask) == Mask;
     }
 
-    void Set(_SizeType Index, bool Value)
+    void Set(_IndexType Index, bool Value)
     {
-        _SizeType ByteIndex = Index / 8;
-        _SizeType Mask = 1 << (Index & 0xff);
+        _IndexType ByteIndex = Index / 8;
+        _IndexType Mask = 1 << (Index & 0xff);
         if (Value)
         {
             Bytes[ByteIndex] &= ~Mask; // Clear bit
@@ -313,7 +311,7 @@ public:
         }
     }
 
-    bool operator[](_SizeType Index) const
+    bool operator[](_IndexType Index) const
     {
         return Get(Index);
     }
@@ -321,13 +319,23 @@ public:
 
 //------------------------------------------------------------------------------------------------
 // Represents a logical sub-allocation.
-// Offset is the start of the allocation range.
+// Location is the start of the allocation range.
 // Size is the actual size of the allocation.
-template<typename _SizeType>
+template<typename _IndexType>
 struct TBuddyBlock
 {
-    _SizeType Offset;
-    _SizeType Size;
+    TBuddyBlock() :
+        Location(0),
+        Order(-1) {}
+
+    TBuddyBlock(_IndexType location, _IndexType order) :
+        Location(location),
+        Order(order) {}
+
+    _IndexType Location;
+    _IndexType Order;
+
+    size_t Size() const { return Order >= 0 ? 1 << Order : 0; }
 };
 
 //------------------------------------------------------------------------------------------------
@@ -346,16 +354,23 @@ struct TBuddyBlock
 // or merged.  Since the buddy suballocator is used only for logical rather than physical allocations, such intrusive
 // links are not availale.  Therefore, memory must be set aside to contain these links.  The buddy suballocator 
 // refers to this memory as an IndexTable.  The index table is an indexable collections (e.g. an array)
-// of N/2 IndexTableNode elements.  This collection is a proxy for the intrusive links that buddy allocators
+// of N/2 IndexNode elements.  This collection is a proxy for the intrusive links that buddy allocators
 // typically use for system memory allocation.
 // 
-// _Size is the full size of the allocatable range.  _Size must be a power of two.
+// _MaxSize is the full size of the allocatable range.  _MaxSize must be a power of two.
 //
-// _SizeType is the type of integers representing the allocation space.
+// _IndexType is the type of integers representing the allocation space.
+//
+// Order = Log2(BlockSize)
+// BlockSize = 2 ^ Order (i.e. 1 << Order)
+// BuddyLocation = Location ^ BlockSize
+// ParentLocation = min(Location, BuddyLocation) = Location & (ParentBlockSize - 1)
 // 
 // For example: Given a space of size 16 - the following graph represents the set of possible allocations:
 //
-// Order | Block Offsets
+// Order = 4
+//
+// Order | Block Locations
 //       |-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|
 //   0   |  0000 |  0001 |  0010 |  0011 |  0100 |  0101 |  0110 |  0111 |  1000 |  1001 |  0010 |  1011 |  1100 |  1101 |  1110 |  1111 |
 //       |-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|
@@ -368,14 +383,9 @@ struct TBuddyBlock
 //   4   |                                                              0000                                                             |
 //       |-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|
 //
+// Using this sample, the full set of splittable allocation blocks can be identified using a unique id (allocation index) as follows:
 //
-// Using this sample, the set of non-splittable allocation blocks can be identified using a unique id as follows:
-//
-// Order = Log2Ceil(Size) = 4
-// BlockSize = 2 ^ Order (i.e. 1 << Order)
-// BuddyOffset = Offset ^ BlockSize
-//
-// Level | StateIndex
+// Level | BlockId
 //       |-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|
 //   4   |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |
 //       |-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|
@@ -389,72 +399,131 @@ struct TBuddyBlock
 //       |-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|
 // 
 // Level = MaxOrder - Order
-// IndexInLevel = Offset >> Order
+// IndexInLevel = Location >> Order
 // StateIndex = (1 << Level) + IndexInLevel - 1
 // ParentStateIndex = (StateIndex - 1) >> 1
 
-template<class _SizeType, _SizeType _Size, class _IndexTableType>
+template<class _IndexType, size_t _MaxSize>
 class TBuddySuballocator
 {
     // The first NumOrders nodes are terminal nodes
-    static const _SizeType NumNodes = _Size / 2;
-    static const _SizeType MaxOrder = Log2Ceil(_Size);
-    static const _SizeType StateBitArraySize = _Size / 2;
-    typename TIndexList<_SizeType, _IndexTableType>::IndexNode m_BlockNodes[NumNodes];
-    typename TIndexList<_SizeType, _IndexTableType> m_FreeBlocks[MaxOrder];
-    typename TBitArray<_SizeType, NumNodes> m_StateBitArray;
+    static const size_t NumNodes = _MaxSize / 2;
+    static const _IndexType MaxOrder = (_IndexType) Log2Ceil(_MaxSize);
+    static const size_t StateBitArraySize = _MaxSize / 2;
 
-    // Returns the location of the buddy block
-    static _SizeType BuddyOffset(_SizeType Offset, _SizeType Order)
+    IndexNode<_IndexType> m_AllocationTable[_MaxSize]; // Table of all possible allocations
+    typename TIndexList<_IndexType, decltype(m_AllocationTable)> m_FreeAllocations[MaxOrder];
+    typename TBitArray<_IndexType, NumNodes> m_StateBitArray;
+
+    // Returns the buddy block
+    static TBuddyBlock<_IndexType> BuddyBlock(const TBuddyBlock<_IndexType> &Block)
     {
-        _SizeType Size = 1 << Order;
-        return Offset ^ Size;
+        return TBuddyBlock<_IndexType>(Block.Location ^ Block.Size(), Block.Order);
     }
 
-    // Converts a Offset/Order pair to a StateIndex
-    static _SizeType OffsetToStateIndex(_SizeType Offset, _SizeType Order)
+    // Returns the parent block
+    static TBuddyBlock<_IndexType> ParentBlock(const TBuddyBlock<_IndexType> &Block)
     {
-        _SizeType Level = MaxOrder - Order;
-        _SizeType IndexInLevel = Offset >> Order;
+        TBuddyBlock<_IndexType> ParentBlock;
+        auto ParentBlockOrder = Block.Order + 1;
+        size_t ParentBlockSize = 1 << ParentBlockOrder;
+
+        if (ParentBlockOrder <= MaxOrder)
+        {
+            ParentBlock = TBuddyBlock<_IndexType>(Block.Location & (ParentBlockSize - 1), ParentBlockOrder);
+        }
+
+        return ParentBlock;
+    }
+
+    // Returns the state index of a block
+    static _IndexType StateIndex(const TBuddyBlock<_IndexType> &Block)
+    {
+        _IndexType Level = MaxOrder - Block.Order;
+        _IndexType IndexInLevel = Block.Location >> Block.Order;
         return (1 << Level) + IndexInLevel - 1;
     }
 
-    // Gets the node index of the parent to node at StateIndex
-    static _SizeType ParentStateIndex(_SizeType StateIndex)
+    // Returns true if the parent node of the given block is split
+    bool IsSplit(TBuddyBlock<_IndexType> &Block) const
     {
-        return (StateIndex - 1) >> 1;
+        return m_StateBitArray[StateIndex(Block)];
     }
 
-    bool IsParentSplit(_SizeType Offset, _SizeType Order)
+    TBuddyBlock<_IndexType> AllocateImpl(_IndexType Order)
     {
-        _SizeType StateIndex = ParentStateIndex(OffsetToStateIndex(Offset, Order));
-        return m_StateBitArray[StateIndex];
-    }
+        TBuddyBlock<_IndexType> Block;
 
-    TBuddyBlock<_SizeType> AllocateImpl(_SizeType Size)
-    {
-        auto Order = Log2Ceil(Size);
-
-        if (m_FreeBlocks[Order].GetSize())
+        if (Order < MaxOrder)
         {
-            _SizeType Offset = m_FreeBlocks[Order].Get;
+            if (m_FreeAllocations[Order].Size())
+            {
+                auto It = m_FreeAllocations[Order].Begin();
+                auto Location = It.Index();
+                Block = TBuddyBlock<_IndexType>(Location, Order);
+                m_FreeAllocations[Order].PopFront(m_AllocationTable);
+                if (Order < MaxOrder)
+                {
+                    auto ParentBlock = TBuddySuballocator::ParentBlock(Block);
+                    auto StateIndex = TBuddySuballocator::StateIndex(ParentBlock);
+                    m_StateBitArray.Set(StateIndex, false); // Mark the parent as not split
+                }
+            }
+            else
+            {
+                auto ParentBlock = AllocateImpl(Order + 1);
+                auto StateIndex = TBuddySuballocator::StateIndex(ParentBlock);
+
+                if (ParentBlock.Order != -1)
+                {
+                    // Split the parent block
+                    _IndexType BlockSize = 1 << Order;
+                    Block = TBuddyBlock<_IndexType>(ParentBlock.Location, Order);
+                    m_FreeAllocations[Order].PushFront(ParentBlock.Location + BlockSize, m_AllocationTable);
+                    m_StateBitArray.Set(StateIndex, true); // Mark the parent as split
+                }
+            }
+        }
+
+        return Block;
+    }
+
+    void FreeImpl(const TBuddyBlock<_IndexType> &Block)
+    {
+        auto Parent = ParentBlock(Block);
+
+        if (IsSplit(Parent))
+        {
+            // Mark parent as not split
+            m_StateBitArray.Set(StateIndex(Parent), false);
+
+            // Remove the buddy location from the free list
+            auto Buddy = BuddyBlock(Block);
+            m_FreeAllocations[Block.Order].Remove(Buddy.Location, m_AllocationTable); 
+
+            // Free the parent
+            FreeImpl(Parent);
+        }
+        else
+        {
+            // Add the block to the free list
+            m_FreeAllocations[Block.Order].PushFront(Block.Location, m_AllocationTable);
+
+            // Mark the parent as split
+            m_StateBitArray.Set(StateIndex(Parent), true);
         }
     }
 
 public:
     TBuddySuballocator() = default;
 
-    TBuddyBlock<_SizeType> Allocate(_SizeType Size)
+    TBuddyBlock<_IndexType> Allocate(size_t Size)
     {
-        if (Size > _Size /*|| Order == -1UL*/)
-        {
-            return TBuddyBlock<_SizeType> { 0, 0 }; // Failed allocation
-        }
-
-        return AllocateImpl(Size);
+        _IndexType Order = (_IndexType) Log2Ceil(Size);
+        return AllocateImpl(Order);
     }
 
-    void FreeUnits(const TBuddyBlock<_SizeType> &Allocation)
+    void Free(const TBuddyBlock<_IndexType> &Block)
     {
 
     }
