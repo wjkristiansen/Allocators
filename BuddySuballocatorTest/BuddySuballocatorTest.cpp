@@ -36,7 +36,7 @@ namespace BuddySuballocatorTest
 				IndexType Index = TestIndices[i];
 
 				auto It = IndexList.PushFront(Index, IndexTable);
-				Assert::IsTrue(IndexList.Size() == 1 + i);
+				Assert::IsTrue(IndexList.Size() == 1 + size_t(i));
 				Assert::IsTrue(It.Index() == Index);
 				Assert::IsTrue(IndexList.Begin() == It);
 				It.MoveNext(IndexTable);
@@ -125,6 +125,9 @@ namespace BuddySuballocatorTest
 			TBuddySuballocator<unsigned char, 256> TestSuballocator;
 
 			auto Block = TestSuballocator.Allocate(6);
+			Assert::IsTrue(Block.Location == 0);
+			Assert::IsTrue(Block.Order = 3); // Size == 8 == 2 ^ 3
+
 		}
 	};
 }

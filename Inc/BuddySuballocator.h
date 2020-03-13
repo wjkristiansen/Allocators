@@ -426,7 +426,7 @@ class TBuddySuballocator
     {
         TBuddyBlock<_IndexType> ParentBlock;
         auto ParentBlockOrder = Block.Order + 1;
-        size_t ParentBlockSize = 1 << ParentBlockOrder;
+        size_t ParentBlockSize = 1LL << ParentBlockOrder;
 
         if (ParentBlockOrder <= MaxOrder)
         {
