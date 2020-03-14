@@ -128,15 +128,15 @@ namespace BuddySuballocatorTest
 
 			// Some basic tests
 			auto Block1 = TestSuballocator.Allocate(6);
-			Assert::AreEqual<IndexType>(0, Block1.Location);
+			Assert::AreEqual<IndexType>(0, Block1.Start());
 			Assert::AreEqual<size_t>(8, Block1.Size());
 
 			auto Block2 = TestSuballocator.Allocate(16);
-			Assert::AreEqual<IndexType>(16, Block2.Location);
+			Assert::AreEqual<IndexType>(16, Block2.Start());
 			Assert::AreEqual<size_t>(16, Block2.Size());
 
 			auto Block3 = TestSuballocator.Allocate(8);
-			Assert::AreEqual<IndexType>(8, Block3.Location);
+			Assert::AreEqual<IndexType>(8, Block3.Start());
 			Assert::AreEqual<size_t>(8, Block3.Size());
 
 			// Should now be fully allocated
@@ -149,7 +149,7 @@ namespace BuddySuballocatorTest
 
 			// Should be 16 bytes available
 			auto Block4 = TestSuballocator.Allocate(16);
-			Assert::AreEqual<IndexType>(0, Block4.Location);
+			Assert::AreEqual<IndexType>(0, Block4.Start());
 			Assert::AreEqual<size_t>(16, Block4.Size());
 
 			// Free remaining allocations
@@ -158,7 +158,7 @@ namespace BuddySuballocatorTest
 
 			// Verify the full range can be allocated
 			auto Block5 = TestSuballocator.Allocate(32);
-			Assert::AreEqual<IndexType>(0, Block5.Location);
+			Assert::AreEqual<IndexType>(0, Block5.Start());
 			Assert::AreEqual<size_t>(32, Block5.Size());
 		}
 
@@ -173,7 +173,7 @@ namespace BuddySuballocatorTest
 			for (int i = 0; i < MaxAllocations; ++i)
 			{
 				Blocks[i] = TestSuballocator.Allocate(1);
-				Assert::AreEqual<IndexType>(0, Blocks[i].Order);
+				Assert::AreEqual<IndexType>(0, Blocks[i].Order());
 			}
 
 			// Verify no allocations remain
@@ -199,13 +199,13 @@ namespace BuddySuballocatorTest
 			for (int i = 0; i < MaxAllocations; i += 2)
 			{
 				Blocks[i] = TestSuballocator.Allocate(1);
-				Assert::AreEqual<IndexType>(0, Blocks[i].Order);
+				Assert::AreEqual<IndexType>(0, Blocks[i].Order());
 			}
 
 			// Free first half of allocations
 			for (int i = 0; i < MaxAllocations; ++i)
 			{
-				if (Blocks[i].Location < MaxAllocations / 2)
+				if (Blocks[i].Start() < MaxAllocations / 2)
 				{
 					TestSuballocator.Free(Blocks[i]);
 					Blocks[i] = TBuddyBlock<IndexType>();
@@ -216,7 +216,7 @@ namespace BuddySuballocatorTest
 			for (int i = 0; i < MaxAllocations / 4; ++i)
 			{
 				Blocks[i] = TestSuballocator.Allocate(2);
-				Assert::AreEqual<IndexType>(1, Blocks[i].Order);
+				Assert::AreEqual<IndexType>(1, Blocks[i].Order());
 			}
 
 			// Verify no allocations remain
