@@ -160,8 +160,8 @@ public:
         }
 
         _IndexType Index() const { return m_Index; }
-        void MoveNext(_IndexTableType &IndexTable);
-        void MovePrev(_IndexTableType &IndexTable);
+        void MoveNext(const _IndexTableType &IndexTable);
+        void MovePrev(const _IndexTableType &IndexTable);
     };
 
 private:
@@ -267,14 +267,14 @@ public:
 };
 
 template<class _IndexType, class _IndexTableType>
-void TIndexList<_IndexType, _IndexTableType>::Iterator::MoveNext(_IndexTableType &IndexTable)
+void TIndexList<_IndexType, _IndexTableType>::Iterator::MoveNext(const _IndexTableType &IndexTable)
 {
     m_Index = IndexTable[m_Index].Next;
     m_IsEnd = m_Index == m_pIndexList->m_FirstIndex;
 }
 
 template<class _IndexType, class _IndexTableType>
-void TIndexList<_IndexType, _IndexTableType>::Iterator::MovePrev(_IndexTableType &IndexTable)
+void TIndexList<_IndexType, _IndexTableType>::Iterator::MovePrev(const _IndexTableType &IndexTable)
 {
     m_Index = IndexTable[m_Index].Prev;
     m_IsEnd = m_Index == m_pIndexList->m_LastIndex;
@@ -411,7 +411,7 @@ class TBuddySuballocator
 {
     // The first NumOrders nodes are terminal nodes
     static const size_t NumNodes = _MaxSize / 2;
-    static const _IndexType MaxOrder = (_IndexType) Log2Ceil(_MaxSize);
+    static const unsigned char MaxOrder = (unsigned char) Log2Ceil(_MaxSize);
     static const size_t StateBitArraySize = _MaxSize / 2;
 
     IndexNode<_IndexType> m_AllocationTable[_MaxSize]; // Table of all possible allocations
@@ -535,11 +535,48 @@ public:
     TBuddyBlock<_IndexType> Allocate(size_t Size)
     {
         _IndexType Order = (_IndexType) Log2Ceil(Size);
-        return AllocateImpl(Order);
+        auto Block = AllocateImpl(Order);
+        return Block;
     }
 
     void Free(const TBuddyBlock<_IndexType> &Block)
     {
         FreeImpl(Block);
     }
+
+    size_t TotalFree() const
+    { 
+        size_t TotalFree(0);
+
+        for (auto Order = MaxOrder; Order != (unsigned char)(-1); Order--)
+        {
+            size_t Size = size_t(1) << Order;
+
+            if (m_FreeAllocations[Order].Size() > 0)
+            {
+                for (auto It = m_FreeAllocations[Order].Begin(); It != m_FreeAllocations[Order].End(); It.MoveNext(m_AllocationTable))
+                {
+                    TotalFree += Size;
+                }
+            }
+        }
+
+        return TotalFree;
+    }
+
+    size_t MaxAllocationSize() const
+    {
+        size_t MaxSize = 0;
+        for (auto Order = MaxOrder; Order != (unsigned char)(-1); Order--)
+        {
+            if (m_FreeAllocations[Order].Size() != 0)
+            {
+                MaxSize = size_t(1) << Order;
+                break;
+            }
+        }
+
+        return MaxSize;
+    }
+
 };

@@ -130,14 +130,20 @@ namespace BuddySuballocatorTest
 			auto Block1 = TestSuballocator.Allocate(6);
 			Assert::AreEqual<IndexType>(0, Block1.Start());
 			Assert::AreEqual<size_t>(8, Block1.Size());
+			Assert::AreEqual<size_t>(16, TestSuballocator.MaxAllocationSize());
+			Assert::AreEqual<size_t>(24, TestSuballocator.TotalFree());
 
 			auto Block2 = TestSuballocator.Allocate(16);
 			Assert::AreEqual<IndexType>(16, Block2.Start());
 			Assert::AreEqual<size_t>(16, Block2.Size());
+			Assert::AreEqual<size_t>(8, TestSuballocator.MaxAllocationSize());
+			Assert::AreEqual<size_t>(8, TestSuballocator.TotalFree());
 
 			auto Block3 = TestSuballocator.Allocate(8);
 			Assert::AreEqual<IndexType>(8, Block3.Start());
 			Assert::AreEqual<size_t>(8, Block3.Size());
+			Assert::AreEqual<size_t>(0, TestSuballocator.MaxAllocationSize());
+			Assert::AreEqual<size_t>(0, TestSuballocator.TotalFree());
 
 			// Should now be fully allocated
 			auto FailBlock = TestSuballocator.Allocate(1);
@@ -145,12 +151,18 @@ namespace BuddySuballocatorTest
 
 			// Free up the two adjacent 8-byte blocks
 			TestSuballocator.Free(Block1);
+			Assert::AreEqual<size_t>(8, TestSuballocator.MaxAllocationSize());
+			Assert::AreEqual<size_t>(8, TestSuballocator.TotalFree());
 			TestSuballocator.Free(Block3);
+			Assert::AreEqual<size_t>(16, TestSuballocator.MaxAllocationSize());
+			Assert::AreEqual<size_t>(16, TestSuballocator.TotalFree());
 
 			// Should be 16 bytes available
 			auto Block4 = TestSuballocator.Allocate(16);
 			Assert::AreEqual<IndexType>(0, Block4.Start());
 			Assert::AreEqual<size_t>(16, Block4.Size());
+			Assert::AreEqual<size_t>(0, TestSuballocator.MaxAllocationSize());
+			Assert::AreEqual<size_t>(0, TestSuballocator.TotalFree());
 
 			// Free remaining allocations
 			TestSuballocator.Free(Block4);
@@ -160,6 +172,8 @@ namespace BuddySuballocatorTest
 			auto Block5 = TestSuballocator.Allocate(32);
 			Assert::AreEqual<IndexType>(0, Block5.Start());
 			Assert::AreEqual<size_t>(32, Block5.Size());
+			Assert::AreEqual<size_t>(0, TestSuballocator.MaxAllocationSize());
+			Assert::AreEqual<size_t>(0, TestSuballocator.TotalFree());
 		}
 
 		TEST_METHOD(BuddySuballocatorStress)
