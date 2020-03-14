@@ -303,11 +303,11 @@ public:
         _IndexType Mask = 1 << (Index & 0xff);
         if (Value)
         {
-            Bytes[ByteIndex] &= ~Mask; // Clear bit
+            Bytes[ByteIndex] |= Mask; // Set bit
         }
         else
         {
-            Bytes[ByteIndex] |= Mask; // Set bit
+            Bytes[ByteIndex] &= ~Mask; // Clear bit
         }
     }
 
@@ -326,7 +326,7 @@ struct TBuddyBlock
 {
     TBuddyBlock() :
         Location(0),
-        Order(-1) {}
+        Order(_IndexType(-1)) {}
 
     TBuddyBlock(_IndexType location, _IndexType order) :
         Location(location),
@@ -335,7 +335,7 @@ struct TBuddyBlock
     _IndexType Location;
     _IndexType Order;
 
-    size_t Size() const { return Order >= 0 ? 1 << Order : 0; }
+    size_t Size() const { return Order == _IndexType(-1) ? 0 : 1 << Order; }
 };
 
 //------------------------------------------------------------------------------------------------
@@ -364,7 +364,7 @@ struct TBuddyBlock
 // Order = Log2(BlockSize)
 // BlockSize = 2 ^ Order (i.e. 1 << Order)
 // BuddyLocation = Location ^ BlockSize
-// ParentLocation = min(Location, BuddyLocation) = Location & (ParentBlockSize - 1)
+// ParentLocation = min(Location, BuddyLocation) = Location & ~(ParentBlockSize - 1)
 // 
 // For example: Given a space of size 16 - the following graph represents the set of possible allocations:
 //
@@ -412,13 +412,13 @@ class TBuddySuballocator
     static const size_t StateBitArraySize = _MaxSize / 2;
 
     IndexNode<_IndexType> m_AllocationTable[_MaxSize]; // Table of all possible allocations
-    typename TIndexList<_IndexType, decltype(m_AllocationTable)> m_FreeAllocations[MaxOrder];
+    typename TIndexList<_IndexType, decltype(m_AllocationTable)> m_FreeAllocations[MaxOrder + 1];
     typename TBitArray<_IndexType, NumNodes> m_StateBitArray;
 
     // Returns the buddy block
     static TBuddyBlock<_IndexType> BuddyBlock(const TBuddyBlock<_IndexType> &Block)
     {
-        return TBuddyBlock<_IndexType>(Block.Location ^ Block.Size(), Block.Order);
+        return TBuddyBlock<_IndexType>(Block.Location ^ _IndexType(Block.Size()), Block.Order);
     }
 
     // Returns the parent block
@@ -426,11 +426,12 @@ class TBuddySuballocator
     {
         TBuddyBlock<_IndexType> ParentBlock;
         auto ParentBlockOrder = Block.Order + 1;
-        size_t ParentBlockSize = 1LL << ParentBlockOrder;
+        _IndexType ParentBlockSize = _IndexType(1 << ParentBlockOrder);
 
         if (ParentBlockOrder <= MaxOrder)
         {
-            ParentBlock = TBuddyBlock<_IndexType>(Block.Location & (ParentBlockSize - 1), ParentBlockOrder);
+            _IndexType Location = Block.Location & ~(ParentBlockSize - 1);
+            ParentBlock = TBuddyBlock<_IndexType>(Location, ParentBlockOrder);
         }
 
         return ParentBlock;
@@ -454,7 +455,7 @@ class TBuddySuballocator
     {
         TBuddyBlock<_IndexType> Block;
 
-        if (Order < MaxOrder)
+        if (Order <= MaxOrder)
         {
             if (m_FreeAllocations[Order].Size())
             {
@@ -474,7 +475,7 @@ class TBuddySuballocator
                 auto ParentBlock = AllocateImpl(Order + 1);
                 auto StateIndex = TBuddySuballocator::StateIndex(ParentBlock);
 
-                if (ParentBlock.Order != -1)
+                if (ParentBlock.Order != _IndexType(-1))
                 {
                     // Split the parent block
                     _IndexType BlockSize = 1 << Order;
@@ -490,32 +491,43 @@ class TBuddySuballocator
 
     void FreeImpl(const TBuddyBlock<_IndexType> &Block)
     {
-        auto Parent = ParentBlock(Block);
-
-        if (IsSplit(Parent))
-        {
-            // Mark parent as not split
-            m_StateBitArray.Set(StateIndex(Parent), false);
-
-            // Remove the buddy location from the free list
-            auto Buddy = BuddyBlock(Block);
-            m_FreeAllocations[Block.Order].Remove(Buddy.Location, m_AllocationTable); 
-
-            // Free the parent
-            FreeImpl(Parent);
-        }
-        else
+        if (Block.Order == MaxOrder)
         {
             // Add the block to the free list
             m_FreeAllocations[Block.Order].PushFront(Block.Location, m_AllocationTable);
+        }
+        else
+        {
+            auto Parent = ParentBlock(Block);
 
-            // Mark the parent as split
-            m_StateBitArray.Set(StateIndex(Parent), true);
+            if (IsSplit(Parent))
+            {
+                // Mark parent as not split
+                m_StateBitArray.Set(StateIndex(Parent), false);
+
+                // Remove the buddy location from the free list
+                auto Buddy = BuddyBlock(Block);
+                m_FreeAllocations[Block.Order].Remove(Buddy.Location, m_AllocationTable);
+
+                // Free the parent
+                FreeImpl(Parent);
+            }
+            else
+            {
+                // Add the block to the free list
+                m_FreeAllocations[Block.Order].PushFront(Block.Location, m_AllocationTable);
+
+                // Mark the parent as split
+                m_StateBitArray.Set(StateIndex(Parent), true);
+            }
         }
     }
 
 public:
-    TBuddySuballocator() = default;
+    TBuddySuballocator()
+    {
+        m_FreeAllocations[MaxOrder].PushFront(0, m_AllocationTable);
+    }
 
     TBuddyBlock<_IndexType> Allocate(size_t Size)
     {
@@ -525,6 +537,6 @@ public:
 
     void Free(const TBuddyBlock<_IndexType> &Block)
     {
-
+        FreeImpl(Block);
     }
 };

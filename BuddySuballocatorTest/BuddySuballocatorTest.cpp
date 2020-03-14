@@ -122,12 +122,35 @@ namespace BuddySuballocatorTest
 
 		TEST_METHOD(BasicSuballocatorTest)
 		{
-			TBuddySuballocator<unsigned char, 256> TestSuballocator;
+			constexpr size_t MaxAllocations = 32;
+			TBuddySuballocator<unsigned char, MaxAllocations> TestSuballocator;
+			std::vector<unsigned char> TestData(MaxAllocations, '-');
 
-			auto Block = TestSuballocator.Allocate(6);
-			Assert::IsTrue(Block.Location == 0);
-			Assert::IsTrue(Block.Order = 3); // Size == 8 == 2 ^ 3
+			// Some basic tests
+			auto Block1 = TestSuballocator.Allocate(6);
+			Assert::IsTrue(0 == Block1.Location);
+			Assert::IsTrue(8 == Block1.Size());
 
+			auto Block2 = TestSuballocator.Allocate(16);
+			Assert::IsTrue(16 == Block2.Location);
+			Assert::IsTrue(16 == Block2.Size());
+
+			auto Block3 = TestSuballocator.Allocate(8);
+			Assert::IsTrue(8 == Block3.Location);
+			Assert::IsTrue(8 == Block3.Size());
+
+			// Should now be fully allocated
+			auto FailBlock = TestSuballocator.Allocate(1);
+			Assert::IsTrue(0 == FailBlock.Size());
+
+			// Free up the two adjacent 8-byte blocks
+			TestSuballocator.Free(Block1);
+			TestSuballocator.Free(Block3);
+
+			// Should be 16 bytes available
+			auto Block4 = TestSuballocator.Allocate(16);
+			Assert::IsTrue(0 == Block4.Location);
+			Assert::IsTrue(16 == Block4.Size());
 		}
 	};
 }
