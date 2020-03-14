@@ -9,13 +9,13 @@ namespace BuddySuballocatorTest
 	TEST_CLASS(BuddySuballocatorTestClass)
 	{
 	public:
-		
+
 		TEST_METHOD(IndexListTest)
 		{
 			using IndexType = unsigned __int8;
 			using IndexNodeType = IndexNode<IndexType>;
 
-//			IndexNodeType IndexTable[16];
+			//			IndexNodeType IndexTable[16];
 			std::vector<IndexNodeType> IndexTable(16);
 			using IndexTableType = decltype(IndexTable);
 			using ListType = TIndexList<IndexType, IndexTableType>;
@@ -122,26 +122,26 @@ namespace BuddySuballocatorTest
 
 		TEST_METHOD(BasicSuballocatorTest)
 		{
+			using IndexType = unsigned char;
 			constexpr size_t MaxAllocations = 32;
-			TBuddySuballocator<unsigned char, MaxAllocations> TestSuballocator;
-			std::vector<unsigned char> TestData(MaxAllocations, '-');
+			TBuddySuballocator<IndexType, MaxAllocations> TestSuballocator;
 
 			// Some basic tests
 			auto Block1 = TestSuballocator.Allocate(6);
-			Assert::IsTrue(0 == Block1.Location);
-			Assert::IsTrue(8 == Block1.Size());
+			Assert::AreEqual<IndexType>(0, Block1.Location);
+			Assert::AreEqual<size_t>(8, Block1.Size());
 
 			auto Block2 = TestSuballocator.Allocate(16);
-			Assert::IsTrue(16 == Block2.Location);
-			Assert::IsTrue(16 == Block2.Size());
+			Assert::AreEqual<IndexType>(16, Block2.Location);
+			Assert::AreEqual<size_t>(16, Block2.Size());
 
 			auto Block3 = TestSuballocator.Allocate(8);
-			Assert::IsTrue(8 == Block3.Location);
-			Assert::IsTrue(8 == Block3.Size());
+			Assert::AreEqual<IndexType>(8, Block3.Location);
+			Assert::AreEqual<size_t>(8, Block3.Size());
 
 			// Should now be fully allocated
 			auto FailBlock = TestSuballocator.Allocate(1);
-			Assert::IsTrue(0 == FailBlock.Size());
+			Assert::AreEqual<size_t>(0, FailBlock.Size());
 
 			// Free up the two adjacent 8-byte blocks
 			TestSuballocator.Free(Block1);
@@ -149,8 +149,81 @@ namespace BuddySuballocatorTest
 
 			// Should be 16 bytes available
 			auto Block4 = TestSuballocator.Allocate(16);
-			Assert::IsTrue(0 == Block4.Location);
-			Assert::IsTrue(16 == Block4.Size());
+			Assert::AreEqual<IndexType>(0, Block4.Location);
+			Assert::AreEqual<size_t>(16, Block4.Size());
+
+			// Free remaining allocations
+			TestSuballocator.Free(Block4);
+			TestSuballocator.Free(Block2);
+
+			// Verify the full range can be allocated
+			auto Block5 = TestSuballocator.Allocate(32);
+			Assert::AreEqual<IndexType>(0, Block5.Location);
+			Assert::AreEqual<size_t>(32, Block5.Size());
+		}
+
+		TEST_METHOD(BuddySuballocatorStress)
+		{
+			using IndexType = unsigned char;
+			constexpr size_t MaxAllocations = 4;
+			TBuddySuballocator<IndexType, MaxAllocations> TestSuballocator;
+			TBuddyBlock<IndexType> Blocks[MaxAllocations];
+
+			// Allocate all possible smallest allocations
+			for (int i = 0; i < MaxAllocations; ++i)
+			{
+				Blocks[i] = TestSuballocator.Allocate(1);
+				Assert::AreEqual<IndexType>(0, Blocks[i].Order);
+			}
+
+			// Verify no allocations remain
+			{
+				auto FailBlock = TestSuballocator.Allocate(1);
+				Assert::AreEqual<size_t>(0, FailBlock.Size());
+			}
+
+			// Free up even allocations
+			for (int i = 0; i < MaxAllocations; i += 2)
+			{
+				TestSuballocator.Free(Blocks[i]);
+				Blocks[i] = TBuddyBlock<IndexType>();
+			}
+
+			// Verify no size-2 allocations are available due to fragmentation
+			{
+				auto FailBlock = TestSuballocator.Allocate(2);
+				Assert::AreEqual<size_t>(0, FailBlock.Size());
+			}
+
+			// Verify reallocation of size-1 allocations
+			for (int i = 0; i < MaxAllocations; i += 2)
+			{
+				Blocks[i] = TestSuballocator.Allocate(1);
+				Assert::AreEqual<IndexType>(0, Blocks[i].Order);
+			}
+
+			// Free first half of allocations
+			for (int i = 0; i < MaxAllocations; ++i)
+			{
+				if (Blocks[i].Location < MaxAllocations / 2)
+				{
+					TestSuballocator.Free(Blocks[i]);
+					Blocks[i] = TBuddyBlock<IndexType>();
+				}
+			}
+
+			// Allocate all available size-2 blocks
+			for (int i = 0; i < MaxAllocations / 4; ++i)
+			{
+				Blocks[i] = TestSuballocator.Allocate(2);
+				Assert::AreEqual<IndexType>(1, Blocks[i].Order);
+			}
+
+			// Verify no allocations remain
+			{
+				auto FailBlock = TestSuballocator.Allocate(1);
+				Assert::AreEqual<size_t>(0, FailBlock.Size());
+			}
 		}
 	};
 }

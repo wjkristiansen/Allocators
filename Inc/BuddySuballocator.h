@@ -286,7 +286,7 @@ void TIndexList<_IndexType, _IndexTableType>::Iterator::MovePrev(_IndexTableType
 template<class _IndexType, size_t _Size>
 class TBitArray
 {
-    static const size_t NumBytes = _Size / 8;
+    static const size_t NumBytes = _Size < 8 ? 1 : _Size / 8;
     char Bytes[NumBytes] = {0};
 
 public:
