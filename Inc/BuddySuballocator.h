@@ -371,7 +371,7 @@ public:
 // 
 // For example: Given a space of size 16 - the following graph represents the set of possible allocations:
 //
-// Order = 4
+// MaxOrder = 4
 //
 // Order | Block Start Values
 //       |-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|
