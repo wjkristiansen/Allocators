@@ -132,6 +132,7 @@ namespace BuddySuballocatorTest
 			Assert::AreEqual<size_t>(8, Block1.Size());
 			Assert::AreEqual<size_t>(16, TestSuballocator.MaxAllocationSize());
 			Assert::AreEqual<size_t>(24, TestSuballocator.TotalFree());
+			Assert::IsTrue(TestSuballocator.IsAllocated(Block1));
 
 			auto Block2 = TestSuballocator.Allocate(16);
 			Assert::AreEqual<IndexType>(16, Block2.Start());
@@ -146,8 +147,16 @@ namespace BuddySuballocatorTest
 			Assert::AreEqual<size_t>(0, TestSuballocator.TotalFree());
 
 			// Should now be fully allocated
-			auto FailBlock = TestSuballocator.Allocate(1);
-			Assert::AreEqual<size_t>(0, FailBlock.Size());
+			bool ExceptionHit = false;
+			try
+			{
+				auto FailBlock = TestSuballocator.Allocate(1);
+			}
+			catch (BuddySuballocatorException &)
+			{
+				ExceptionHit = true;
+			}
+			Assert::IsTrue(ExceptionHit);
 
 			// Free up the two adjacent 8-byte blocks
 			TestSuballocator.Free(Block1);
@@ -192,8 +201,16 @@ namespace BuddySuballocatorTest
 
 			// Verify no allocations remain
 			{
-				auto FailBlock = TestSuballocator.Allocate(1);
-				Assert::AreEqual<size_t>(0, FailBlock.Size());
+				bool ExceptionHit = false;
+				try
+				{
+					auto FailBlock = TestSuballocator.Allocate(1);
+				}
+				catch (BuddySuballocatorException&)
+				{
+					ExceptionHit = true;
+				}
+				Assert::IsTrue(ExceptionHit);
 			}
 
 			// Free up even allocations
@@ -205,8 +222,16 @@ namespace BuddySuballocatorTest
 
 			// Verify no size-2 allocations are available due to fragmentation
 			{
-				auto FailBlock = TestSuballocator.Allocate(2);
-				Assert::AreEqual<size_t>(0, FailBlock.Size());
+				bool ExceptionHit = false;
+				try
+				{
+					auto FailBlock = TestSuballocator.Allocate(2);
+				}
+				catch (BuddySuballocatorException&)
+				{
+					ExceptionHit = true;
+				}
+				Assert::IsTrue(ExceptionHit);
 			}
 
 			// Verify reallocation of size-1 allocations
@@ -235,9 +260,90 @@ namespace BuddySuballocatorTest
 
 			// Verify no allocations remain
 			{
-				auto FailBlock = TestSuballocator.Allocate(1);
-				Assert::AreEqual<size_t>(0, FailBlock.Size());
+				bool ExceptionHit = false;
+				try
+				{
+					auto FailBlock = TestSuballocator.Allocate(1);
+				}
+				catch (BuddySuballocatorException&)
+				{
+					ExceptionHit = true;
+				}
+				Assert::IsTrue(ExceptionHit);
 			}
+		}
+
+		TEST_METHOD(ScenarioSuballocatorTest)
+		{
+			using IndexType = unsigned char;
+			constexpr size_t MaxAllocations = 32;
+			TBuddySuballocator<IndexType, MaxAllocations> TestSuballocator;
+			std::vector<char> TestData(MaxAllocations + 1, '-');
+			TestData[MaxAllocations] = 0;
+
+			class ScopedBuddyBlock
+			{
+				TBuddyBlock<IndexType> m_Block;
+				TBuddySuballocator<IndexType, MaxAllocations>* m_pAllocator = nullptr;
+
+			public:
+				ScopedBuddyBlock() = default;
+				ScopedBuddyBlock(const TBuddyBlock<IndexType>& Block, TBuddySuballocator<IndexType, MaxAllocations>* pAllocator) :
+					m_Block(Block),
+					m_pAllocator(pAllocator)
+				{
+				}
+				ScopedBuddyBlock(const ScopedBuddyBlock& o) = delete;
+				ScopedBuddyBlock(ScopedBuddyBlock&& o) noexcept :
+					m_Block(o.m_Block),
+					m_pAllocator(o.m_pAllocator)
+				{
+					o.m_pAllocator = nullptr;
+					o.m_Block = TBuddyBlock<IndexType>();
+				}
+
+				~ScopedBuddyBlock()
+				{
+					if (m_pAllocator && m_Block != TBuddyBlock<IndexType>())
+					{
+						m_pAllocator->Free(m_Block);
+					}
+				}
+				ScopedBuddyBlock& operator=(const ScopedBuddyBlock& o) = delete;
+				ScopedBuddyBlock& operator=(ScopedBuddyBlock&& o) noexcept
+				{
+					m_Block = o.m_Block;
+					m_pAllocator = o.m_pAllocator;
+					o.m_Block = TBuddyBlock<IndexType>();
+					o.m_pAllocator = nullptr;
+				}
+
+				const TBuddyBlock<IndexType>& Get() const { return m_Block; }
+			};
+
+			auto NewBlock = [&TestData, &TestSuballocator](size_t Size, char Fill)
+			{
+				ScopedBuddyBlock Block(TestSuballocator.Allocate(Size), &TestSuballocator);
+				std::memset(&TestData[Block.Get().Start()], Fill, Size);
+				return Block;
+			};
+
+			std::string s0 = TestData.data();
+
+			auto Block1 = NewBlock(7, '1');
+			std::string s1 = TestData.data();
+
+			auto Block2 = NewBlock(2, '2');
+			std::string s2 = TestData.data();
+
+			auto Block3 = NewBlock(4, '3');
+			std::string s3 = TestData.data();
+
+			auto Block4 = NewBlock(4, '4');
+			std::string s4 = TestData.data();
+
+			auto Block5 = NewBlock(7, '5');
+			std::string s5 = TestData.data();
 		}
 	};
 }

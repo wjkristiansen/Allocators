@@ -339,6 +339,23 @@ public:
     _IndexType Start() const { return m_Start; }
     unsigned char Order() const { return m_Order; }
     size_t Size() const { return m_Order == unsigned char(-1) ? 0 : 1 << m_Order; }
+
+    bool operator==(TBuddyBlock& o) const { return m_Start == o.m_Start && m_Order == o.m_Order; }
+    bool operator!=(TBuddyBlock& o) const { return !operator==(o); }
+};
+
+//------------------------------------------------------------------------------------------------
+struct BuddySuballocatorException
+{
+    enum class Type
+    {
+        Unavailable,
+        NotAllocated,
+    };
+
+    Type T;
+
+    BuddySuballocatorException(Type t) : T(t) {}
 };
 
 //------------------------------------------------------------------------------------------------
@@ -390,7 +407,7 @@ public:
 //
 // Level | BlockId
 //       |-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|
-//   4   |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |  ---  |
+//   4   |   15  |   16  |   17  |   18  |   19  |   20  |   21  |   22  |   23  |   24  |   25  |   26  |   27  |   28  |   29  |   30  |
 //       |-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|
 //   3   |       7       |       8       |       9       |       10      |       11      |       12      |       13      |       14      |
 //       |-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|
@@ -448,7 +465,7 @@ class TBuddySuballocator
         return (1 << Level) + IndexInLevel - 1;
     }
 
-    // Returns true if the parent node of the given block is split
+    // Returns true if the the given block is split
     bool IsSplit(TBuddyBlock<_IndexType> &Block) const
     {
         return m_StateBitArray[StateIndex(Block)];
@@ -456,15 +473,13 @@ class TBuddySuballocator
 
     TBuddyBlock<_IndexType> AllocateImpl(_IndexType Order)
     {
-        TBuddyBlock<_IndexType> Block;
-
         if (Order <= MaxOrder)
         {
             if (m_FreeAllocations[Order].Size())
             {
                 auto It = m_FreeAllocations[Order].Begin();
                 auto Start = It.Index();
-                Block = TBuddyBlock<_IndexType>(Start, Order);
+                auto Block = TBuddyBlock<_IndexType>(Start, Order);
                 m_FreeAllocations[Order].PopFront(m_AllocationTable);
                 if (Order < MaxOrder)
                 {
@@ -472,6 +487,7 @@ class TBuddySuballocator
                     auto StateIndex = TBuddySuballocator::StateIndex(ParentBlock);
                     m_StateBitArray.Set(StateIndex, false); // Mark the parent as not split
                 }
+                return Block;
             }
             else
             {
@@ -482,14 +498,15 @@ class TBuddySuballocator
                 {
                     // Split the parent block
                     _IndexType BlockSize = 1 << Order;
-                    Block = TBuddyBlock<_IndexType>(ParentBlock.Start(), Order);
+                    auto Block = TBuddyBlock<_IndexType>(ParentBlock.Start(), Order);
                     m_FreeAllocations[Order].PushFront(ParentBlock.Start() + BlockSize, m_AllocationTable);
                     m_StateBitArray.Set(StateIndex, true); // Mark the parent as split
+                    return Block;
                 }
             }
         }
 
-        return Block;
+        throw(BuddySuballocatorException(BuddySuballocatorException::Type::Unavailable));
     }
 
     void FreeImpl(const TBuddyBlock<_IndexType> &Block)
@@ -537,6 +554,20 @@ public:
         _IndexType Order = (_IndexType) Log2Ceil(Size);
         auto Block = AllocateImpl(Order);
         return Block;
+    }
+
+    bool IsAllocated(TBuddyBlock<_IndexType> Block) const
+    {
+        if (IsSplit(Block))
+            return false;
+
+        if (Block.Order() == MaxOrder)
+            return false;
+
+        if (!IsSplit(ParentBlock(Block)))
+            return false;
+
+        return true;
     }
 
     void Free(const TBuddyBlock<_IndexType> &Block)
