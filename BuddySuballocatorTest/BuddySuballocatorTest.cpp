@@ -19,12 +19,17 @@ namespace BuddySuballocatorTest
 			std::vector<IndexNodeType> IndexTable(16);
 			using IndexTableType = decltype(IndexTable);
 			using ListType = TIndexList<IndexType, IndexTableType>;
+		
+			for (auto& v : IndexTable)
+			{
+				v.Next = v.Prev = IndexType(-1);
+			}
 
 			ListType IndexList;
 
 			Assert::IsTrue(IndexList.Size() == 0);
 
-			const IndexType TestIndices[]{ 15, 1, 0, 6, 3, 8, 5 };
+			const IndexType TestIndices[]{ 14, 1, 0, 6, 3, 8, 5 };
 
 			// Build list from the indices in TestIndices
 			IndexType First = TestIndices[0];
@@ -72,7 +77,7 @@ namespace BuddySuballocatorTest
 
 			// Remove the last node in the list...
 			{
-				auto It = IndexList.Remove(15, IndexTable);
+				auto It = IndexList.Remove(14, IndexTable);
 				Assert::IsTrue(It == IndexList.End());
 				NodeCount--;
 				Assert::IsTrue(NodeCount == IndexList.Size());
@@ -112,11 +117,11 @@ namespace BuddySuballocatorTest
 
 			Assert::IsTrue(0 == IndexList.Size());
 
-			// Verify all nodes in the IndexTable are [0, 0]
+			// Verify all nodes in the IndexTable are [15, 15]
 			for (auto i = 0; i < _countof(TestIndices); ++i)
 			{
-				Assert::IsTrue(IndexTable[i].Next == 0);
-				Assert::IsTrue(IndexTable[i].Prev == 0);
+				Assert::AreEqual<IndexType>(IndexType(-1), IndexTable[i].Next);
+				Assert::AreEqual<IndexType>(IndexType(-1), IndexTable[i].Prev);
 			}
 		}
 

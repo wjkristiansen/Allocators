@@ -95,63 +95,61 @@ struct IndexNode
 // 
 // All values in the list must be uniqe, no value can exist in the list more than once.
 //
-// TIndexList assumes all unallocated nodes are initialized to [0,0].
+// TIndexList assumes all unallocated nodes are initialized to [Max_IndexType_Value,Max_IndexType_Value].
 //
-// There is no reserved terminal value.  This is essentially a ring linked list, meaning
-// that Next(Last()) == First().
+// The Max_IndexType_Value is reserved as a terminal value (i.e. _IndexType(-1)).  This means the full
+// range of indexable values is 0 through Max_IndexType_Value - 1.
 //
 // If the index table is shared with another IIndexList, care must be taken to avoid
 // storing any given index in both lists.
 //
 // Example list:
-// 1 <-> 5 <-> 3 <-> 2 <-> 7
+// _IndexType -> 3-bit unsigned integer (max value is 7)
+// 1 <-> 5 <-> 3 <-> 2 <-> 6
 //
-//          -----------------------------------------------------------------
-//    Index |   0   |   1   |   2   |   3   |   4   |   5   |   6   |   7   |
-//          -----------------------------------------------------------------
-//     Next |       |   5   |   7   |   2   |       |   3   |       |   1   |
-//          -----------------------------------------------------------------
-//     Prev |       |   7   |   3   |   5   |       |   1   |       |   2   |
-//          -----------------------------------------------------------------
+//          ------------------------------------------------------------------
+//    Index |   0   |   1   |   2   |   3   |   4   |   5   |   6   ||   7   |
+//          ------------------------------------------------------------------
+//     Next |       |   5   |   6   |   2   |       |   3   |   7*  ||   -   |
+//          ------------------------------------------------------------------
+//     Prev |       |   7*  |   3   |   5   |       |   1   |   2   ||   -   |
+//          ------------------------------------------------------------------
 template<class _IndexType, class _IndexTableType>
 class TIndexList
 {
 public:
+    static_assert(_IndexType(-1) > _IndexType(0), "_IndexType must be unsigned");
+
+    static const _IndexType _TermValue = _IndexType(-1);
 
     class Iterator
     {
-        const TIndexList *m_pIndexList;
+        const TIndexList* m_pIndexList;
         _IndexType m_Index = 0;
-        bool m_IsEnd = true;
 
     public:
-        Iterator(const TIndexList *pIndexList) : 
+        Iterator(const TIndexList* pIndexList) :
             m_pIndexList(pIndexList) {};
-        
-        Iterator(const TIndexList *pIndexList, _IndexType Index) :
+
+        Iterator(const TIndexList* pIndexList, _IndexType Index) :
             m_pIndexList(pIndexList),
-            m_Index(Index),
-            m_IsEnd(false) {}
+            m_Index(Index) {}
 
-        Iterator(const Iterator& o) : 
-            m_pIndexList(o.m_pIndexList), 
-            m_Index(o.m_Index), 
-            m_IsEnd(o.m_IsEnd) {}
+        Iterator(const Iterator& o) :
+            m_pIndexList(o.m_pIndexList),
+            m_Index(o.m_Index) {}
 
-        Iterator& operator=(const Iterator& o) 
+        Iterator& operator=(const Iterator& o)
         {
             m_pIndexList = o.m_pIndexList;
-            m_Index = o.m_Index; 
-            m_IsEnd = o.m_IsEnd; 
+            m_Index = o.m_Index;
 
             return *this;
         }
 
         bool operator==(const Iterator& o) const
         {
-            return 
-                (m_pIndexList == o.m_pIndexList) && 
-                ((m_IsEnd && o.m_IsEnd) || (!m_IsEnd && !o.m_IsEnd && (m_Index == o.m_Index)));
+            return (m_pIndexList == o.m_pIndexList) && (m_Index == o.m_Index);
         }
 
         bool operator!=(const Iterator& o) const
@@ -160,14 +158,14 @@ public:
         }
 
         _IndexType Index() const { return m_Index; }
-        void MoveNext(const _IndexTableType &IndexTable);
-        void MovePrev(const _IndexTableType &IndexTable);
+        void MoveNext(const _IndexTableType& IndexTable);
+        void MovePrev(const _IndexTableType& IndexTable);
     };
 
 private:
     size_t m_Size = 0;
-    _IndexType m_FirstIndex = 0;
-    _IndexType m_LastIndex = 0;
+    _IndexType m_FirstIndex = _TermValue;
+    _IndexType m_LastIndex = _TermValue;
 
 public:
 
@@ -176,26 +174,25 @@ public:
 
     const size_t Size() const { return m_Size; }
 
-    Iterator PushFront(_IndexType Index, _IndexTableType &IndexTable)
+    Iterator PushFront(_IndexType Index, _IndexTableType& IndexTable)
     {
         Iterator It(this, Index);
 
         if (0 == Size())
         {
             // New node in empty list
-            IndexTable[Index].Prev = Index;
-            IndexTable[Index].Next = Index;
+            IndexTable[Index].Prev = _TermValue;
+            IndexTable[Index].Next = _TermValue;
             m_LastIndex = Index;
         }
         else
         {
             // Insert the node at the start of the list
-            _IndexType Prev = m_LastIndex;
+            _IndexType Prev = _TermValue;
             _IndexType Next = m_FirstIndex;
             IndexTable[Index].Prev = Prev;
             IndexTable[Index].Next = Next;
             IndexTable[Next].Prev = Index;
-            IndexTable[Prev].Next = Index;
         }
         m_FirstIndex = Index;
         ++m_Size;
@@ -203,9 +200,9 @@ public:
         return It;
     }
 
-    void PopFront(_IndexTableType &IndexTable)
+    void PopFront(_IndexTableType& IndexTable)
     {
-        if (Size() > 0)
+        if (m_Size > 0)
         {
             Remove(m_FirstIndex, IndexTable);
         }
@@ -220,64 +217,65 @@ public:
     // Returns the end iterator.
     Iterator End() const
     {
-        return Iterator(this);
+        return Iterator(this, _TermValue);
     }
 
     // Removes the element for the given iterator location.
     // Returns the Iterator for the next location in the list.
     // Returns End() if the list is empty or the given Index was not in the list.
-    Iterator Remove(_IndexType Index, _IndexTableType &IndexTable)
+    Iterator Remove(_IndexType Index, _IndexTableType& IndexTable)
     {
         // Initial Result is the End iterator
-        Iterator It = End(); 
+        Iterator It = End();
 
         if (--m_Size == 0)
         {
             // List is now empty
-            m_FirstIndex = 0;
-            m_LastIndex = 0;
+            m_FirstIndex = _TermValue;
+            m_LastIndex = _TermValue;
         }
         else
         {
             _IndexType Prev = IndexTable[Index].Prev;
             _IndexType Next = IndexTable[Index].Next;
-            IndexTable[Next].Prev = Prev;
-            IndexTable[Prev].Next = Next;
-
-            if (m_FirstIndex == Index)
+            if (Prev == _TermValue)
             {
                 m_FirstIndex = Next;
             }
+            else
+            {
+                IndexTable[Prev].Next = Next;
+            }
 
-            if (m_LastIndex == Index)
+            if (Next == _TermValue)
             {
                 m_LastIndex = Prev;
             }
             else
             {
-                It = Iterator(this, Next);
+                IndexTable[Next].Prev = Prev;
             }
+
+            It = Iterator(this, Next);
         }
 
-        IndexTable[Index].Prev = 0;
-        IndexTable[Index].Next = 0;
+        IndexTable[Index].Prev = _TermValue;
+        IndexTable[Index].Next = _TermValue;
 
         return It;
     }
 };
 
 template<class _IndexType, class _IndexTableType>
-void TIndexList<_IndexType, _IndexTableType>::Iterator::MoveNext(const _IndexTableType &IndexTable)
+void TIndexList<_IndexType, _IndexTableType>::Iterator::MoveNext(const _IndexTableType& IndexTable)
 {
     m_Index = IndexTable[m_Index].Next;
-    m_IsEnd = m_Index == m_pIndexList->m_FirstIndex;
 }
 
 template<class _IndexType, class _IndexTableType>
-void TIndexList<_IndexType, _IndexTableType>::Iterator::MovePrev(const _IndexTableType &IndexTable)
+void TIndexList<_IndexType, _IndexTableType>::Iterator::MovePrev(const _IndexTableType& IndexTable)
 {
     m_Index = IndexTable[m_Index].Prev;
-    m_IsEnd = m_Index == m_pIndexList->m_LastIndex;
 }
 
 
@@ -426,6 +424,8 @@ struct BuddySuballocatorException
 template<class _IndexType, size_t _MaxSize>
 class TBuddySuballocator
 {
+    static_assert(_IndexType(-1) > _IndexType(0), "_IndexType must be an unsigned type");
+
     // The first NumOrders nodes are terminal nodes
     static const size_t NumNodes = _MaxSize / 2;
     static const unsigned char MaxOrder = (unsigned char) Log2Ceil(_MaxSize);
