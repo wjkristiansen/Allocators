@@ -110,9 +110,9 @@ struct IndexNode
 //          ------------------------------------------------------------------
 //    Index |   0   |   1   |   2   |   3   |   4   |   5   |   6   ||   7   |
 //          ------------------------------------------------------------------
-//     Next |       |   5   |   6   |   2   |       |   3   |   7*  ||   -   |
+//     Next |  (0)  |   5   |   6   |   2   |  (0)  |   3   |   7*  ||   -   |
 //          ------------------------------------------------------------------
-//     Prev |       |   7*  |   3   |   5   |       |   1   |   2   ||   -   |
+//     Prev |  (0)  |   7*  |   3   |   5   |  (0)  |   1   |   2   ||   -   |
 //          ------------------------------------------------------------------
 template<class _IndexType, class _IndexTableType>
 class TIndexList
@@ -259,8 +259,9 @@ public:
             It = Iterator(this, Next);
         }
 
-        IndexTable[Index].Prev = _TermValue;
-        IndexTable[Index].Next = _TermValue;
+        // Degenerate the node by indexing self
+        IndexTable[Index].Prev = 0;
+        IndexTable[Index].Next = 0;
 
         return It;
     }
@@ -538,13 +539,14 @@ class TBuddySuballocator
                 m_FreeAllocations[Block.Order()].PushFront(Block.Start(), m_AllocationTable);
 
                 // Mark the parent as split
-                m_StateBitArray.Set(StateIndex(Parent), true);
+                m_SplitStateBitArray.Set(StateIndex(Parent), true);
             }
         }
     }
 
 public:
-    TBuddySuballocator()
+    TBuddySuballocator() :
+        m_AllocationTable{ 0 }
     {
         m_FreeAllocations[MaxOrder].PushFront(0, m_AllocationTable);
     }
