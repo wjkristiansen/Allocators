@@ -9,6 +9,7 @@
 
 // add headers that you want to pre-compile here
 #include <vector>
+#include <list>
 #include <iostream>
 
 #endif //PCH_H

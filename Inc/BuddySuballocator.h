@@ -85,6 +85,31 @@ struct IndexNode
 {
     _IndexType Next = 0;
     _IndexType Prev = 0;
+
+    //------------------------------------------------------------------------------------------------
+    // Returns true if the index references a degenerate (unused) index
+    bool IsDegenerate() const
+    {
+        return Next == 0 && Prev == 0;
+    }
+
+    //------------------------------------------------------------------------------------------------
+    // Allocated nodes store the log2 of allocation size in both Prev and Next
+    bool IsAllocated() const
+    {
+        return Next != 0 && Next != _IndexType(-1) && Next == Prev;
+    }
+
+    //------------------------------------------------------------------------------------------------
+    // Returns the size of the allocation for a given node
+    size_t AllocatedSize() const
+    {
+        size_t Size = 0;
+        if (IsAllocated())
+        {
+            return 1 << (Next - 1);
+        }
+    }
 };
 
 //------------------------------------------------------------------------------------------------
@@ -102,6 +127,8 @@ struct IndexNode
 //
 // If the index table is shared with another IIndexList, care must be taken to avoid
 // storing any given index in both lists.
+//
+// Degenerate (unused) indices must have Prev and Next set to 0
 //
 // Example list:
 // _IndexType -> 3-bit unsigned integer (max value is 7)
@@ -428,13 +455,13 @@ class TBuddySuballocator
     static_assert(_IndexType(-1) > _IndexType(0), "_IndexType must be an unsigned type");
 
     // The first NumOrders nodes are terminal nodes
-    static const size_t NumNodes = _MaxSize / 2;
+    static const size_t NumSplitStateBits = _MaxSize / 2;
     static const unsigned char MaxOrder = (unsigned char) Log2Ceil(_MaxSize);
-    static const size_t StateBitArraySize = _MaxSize / 2;
+    static const size_t SplitStateBitArraySize = _MaxSize / 2;
 
     IndexNode<_IndexType> m_AllocationTable[_MaxSize]; // Table of all possible allocations
     typename TIndexList<_IndexType, decltype(m_AllocationTable)> m_FreeAllocations[MaxOrder + 1];
-    typename TBitArray<_IndexType, NumNodes> m_StateBitArray;
+    typename TBitArray<_IndexType, NumSplitStateBits> m_SplitStateBitArray;
 
     // Returns the buddy block
     static TBuddyBlock<_IndexType> BuddyBlock(const TBuddyBlock<_IndexType> &Block)
@@ -467,9 +494,24 @@ class TBuddySuballocator
     }
 
     // Returns true if the the given block is split
-    bool IsSplit(TBuddyBlock<_IndexType> &Block) const
+    bool IsSplit(const TBuddyBlock<_IndexType> &Block) const
     {
-        return m_StateBitArray[StateIndex(Block)];
+        return m_SplitStateBitArray[StateIndex(Block)];
+    }
+
+    // Returns true if the block is Allocated
+    // Committed blocks are either split or allocated
+    bool IsAllocated(const TBuddyBlock<_IndexType>& Block) const
+    {
+        auto &Node = m_AllocationTable[Block.Start()];
+        return Node.IsAllocated() && Node.Prev == Block.Order() + 1;
+    }
+
+    void TrackNodeAsAllocated(const TBuddyBlock<_IndexType>& Block)
+    {
+        // Encode the node with 1 + allocation order
+        auto& Node = m_AllocationTable[Block.Start()];
+        Node.Next = Node.Prev = Block.Order() + 1;
     }
 
     TBuddyBlock<_IndexType> AllocateImpl(_IndexType Order)
@@ -486,8 +528,11 @@ class TBuddySuballocator
                 {
                     auto ParentBlock = TBuddySuballocator::ParentBlock(Block);
                     auto StateIndex = TBuddySuballocator::StateIndex(ParentBlock);
-                    m_StateBitArray.Set(StateIndex, false); // Mark the parent as not split
+                    m_SplitStateBitArray.Set(StateIndex, false); // Mark the parent as not split
                 }
+
+                TrackNodeAsAllocated(Block);
+
                 return Block;
             }
             else
@@ -501,7 +546,10 @@ class TBuddySuballocator
                     _IndexType BlockSize = 1 << Order;
                     auto Block = TBuddyBlock<_IndexType>(ParentBlock.Start(), Order);
                     m_FreeAllocations[Order].PushFront(ParentBlock.Start() + BlockSize, m_AllocationTable);
-                    m_StateBitArray.Set(StateIndex, true); // Mark the parent as split
+                    m_SplitStateBitArray.Set(StateIndex, true); // Mark the parent as split
+
+                    TrackNodeAsAllocated(Block);
+
                     return Block;
                 }
             }
@@ -524,7 +572,7 @@ class TBuddySuballocator
             if (IsSplit(Parent))
             {
                 // Mark parent as not split
-                m_StateBitArray.Set(StateIndex(Parent), false);
+                m_SplitStateBitArray.Set(StateIndex(Parent), false);
 
                 // Remove the buddy location from the free list
                 auto Buddy = BuddyBlock(Block);
@@ -558,22 +606,14 @@ public:
         return Block;
     }
 
-    bool IsAllocated(TBuddyBlock<_IndexType> Block) const
-    {
-        if (IsSplit(Block))
-            return false;
-
-        if (Block.Order() == MaxOrder)
-            return false;
-
-        if (!IsSplit(ParentBlock(Block)))
-            return false;
-
-        return true;
-    }
-
     void Free(const TBuddyBlock<_IndexType> &Block)
     {
+        if (!IsAllocated(Block))
+        {
+            throw(BuddySuballocatorException(BuddySuballocatorException::Type::NotAllocated));
+        }
+
+
         FreeImpl(Block);
     }
 

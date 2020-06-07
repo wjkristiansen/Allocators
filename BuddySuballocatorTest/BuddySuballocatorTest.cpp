@@ -17,14 +17,10 @@ namespace BuddySuballocatorTest
 
 			//			IndexNodeType IndexTable[16];
 			std::vector<IndexNodeType> IndexTable(16);
+			std::fill(IndexTable.begin(), IndexTable.end(), IndexNode<IndexType>()); // zero init
 			using IndexTableType = decltype(IndexTable);
 			using ListType = TIndexList<IndexType, IndexTableType>;
 		
-			for (auto& v : IndexTable)
-			{
-				v.Next = v.Prev = IndexType(-1);
-			}
-
 			ListType IndexList;
 
 			Assert::IsTrue(IndexList.Size() == 0);
@@ -117,11 +113,11 @@ namespace BuddySuballocatorTest
 
 			Assert::IsTrue(0 == IndexList.Size());
 
-			// Verify all nodes in the IndexTable are [15, 15]
+			// Verify all nodes in the IndexTable are [0, 0]
 			for (auto i = 0; i < _countof(TestIndices); ++i)
 			{
-				Assert::AreEqual<IndexType>(IndexType(-1), IndexTable[i].Next);
-				Assert::AreEqual<IndexType>(IndexType(-1), IndexTable[i].Prev);
+				Assert::AreEqual<IndexType>(IndexType(0), IndexTable[i].Next);
+				Assert::AreEqual<IndexType>(IndexType(0), IndexTable[i].Prev);
 			}
 		}
 
@@ -137,7 +133,7 @@ namespace BuddySuballocatorTest
 			Assert::AreEqual<size_t>(8, Block1.Size());
 			Assert::AreEqual<size_t>(16, TestSuballocator.MaxAllocationSize());
 			Assert::AreEqual<size_t>(24, TestSuballocator.TotalFree());
-			Assert::IsTrue(TestSuballocator.IsAllocated(Block1));
+			//Assert::IsTrue(TestSuballocator.IsAllocated(Block1));
 
 			auto Block2 = TestSuballocator.Allocate(16);
 			Assert::AreEqual<IndexType>(16, Block2.Start());
@@ -195,13 +191,14 @@ namespace BuddySuballocatorTest
 			using IndexType = unsigned char;
 			constexpr size_t MaxAllocations = 4;
 			TBuddySuballocator<IndexType, MaxAllocations> TestSuballocator;
-			TBuddyBlock<IndexType> Blocks[MaxAllocations];
+			std::list<TBuddyBlock<IndexType>> Blocks;
 
 			// Allocate all possible smallest allocations
 			for (int i = 0; i < MaxAllocations; ++i)
 			{
-				Blocks[i] = TestSuballocator.Allocate(1);
-				Assert::AreEqual<IndexType>(0, Blocks[i].Order());
+				auto Block = TestSuballocator.Allocate(1);
+				Blocks.push_back(Block);
+				Assert::AreEqual<IndexType>(0, Block.Order());
 			}
 
 			// Verify no allocations remain
@@ -219,10 +216,18 @@ namespace BuddySuballocatorTest
 			}
 
 			// Free up even allocations
-			for (int i = 0; i < MaxAllocations; i += 2)
+			for (auto it = Blocks.begin(); it != Blocks.end();)
 			{
-				TestSuballocator.Free(Blocks[i]);
-				Blocks[i] = TBuddyBlock<IndexType>();
+				auto Block = *it;
+				if (0 == (Block.Start() % 2))
+				{
+					TestSuballocator.Free(*it);
+					it = Blocks.erase(it);
+				}
+				else
+				{
+					++it;
+				}
 			}
 
 			// Verify no size-2 allocations are available due to fragmentation
@@ -242,25 +247,32 @@ namespace BuddySuballocatorTest
 			// Verify reallocation of size-1 allocations
 			for (int i = 0; i < MaxAllocations; i += 2)
 			{
-				Blocks[i] = TestSuballocator.Allocate(1);
-				Assert::AreEqual<IndexType>(0, Blocks[i].Order());
+				auto Block = TestSuballocator.Allocate(1);
+				Blocks.push_back(Block);
+				Assert::AreEqual<IndexType>(0, Block.Order());
 			}
 
 			// Free first half of allocations
-			for (int i = 0; i < MaxAllocations; ++i)
+			for (auto it = Blocks.begin(); it != Blocks.end();)
 			{
-				if (Blocks[i].Start() < MaxAllocations / 2)
+				auto Block = *it;
+				if (Block.Start() < MaxAllocations / 2)
 				{
-					TestSuballocator.Free(Blocks[i]);
-					Blocks[i] = TBuddyBlock<IndexType>();
+					TestSuballocator.Free(Block);
+					it = Blocks.erase(it);
+				}
+				else
+				{
+					++it;
 				}
 			}
 
 			// Allocate all available size-2 blocks
 			for (int i = 0; i < MaxAllocations / 4; ++i)
 			{
-				Blocks[i] = TestSuballocator.Allocate(2);
-				Assert::AreEqual<IndexType>(1, Blocks[i].Order());
+				auto Block = TestSuballocator.Allocate(2);
+				Assert::AreEqual<IndexType>(1, Block.Order());
+				Blocks.push_back(Block);
 			}
 
 			// Verify no allocations remain
@@ -270,11 +282,66 @@ namespace BuddySuballocatorTest
 				{
 					auto FailBlock = TestSuballocator.Allocate(1);
 				}
-				catch (BuddySuballocatorException&)
+				catch (BuddySuballocatorException& e)
 				{
-					ExceptionHit = true;
+					if (e.T == BuddySuballocatorException::Type::Unavailable)
+					{
+						ExceptionHit = true;
+					}
 				}
 				Assert::IsTrue(ExceptionHit);
+			}
+
+			// Free all blocks
+			for (auto it = Blocks.begin(); it != Blocks.end();)
+			{
+				TestSuballocator.Free(*it);
+				it = Blocks.erase(it);
+			}
+
+			// Verify can now allocate full size
+			{
+				auto Block = TestSuballocator.Allocate(MaxAllocations);
+				Assert::AreEqual(Block.Start(), IndexType(0));
+				Assert::AreEqual(Block.Size(), size_t(MaxAllocations));
+				TestSuballocator.Free(Block);
+			}
+
+			// Verify exceptions for freeing invalid blocks
+			{
+				// Free block that was never allocated
+				TBuddyBlock<IndexType> Block(0, 0);
+				bool ExceptionHit = false;
+				try
+				{
+					TestSuballocator.Free(Block);
+				}
+				catch (BuddySuballocatorException& e)
+				{
+					if (e.T == BuddySuballocatorException::Type::NotAllocated)
+					{
+						ExceptionHit = true;
+					}
+				}
+				Assert::IsTrue(ExceptionHit);
+
+				// Free block with the same Start but different size
+				ExceptionHit = false;
+				Block = TestSuballocator.Allocate(4);
+				try
+				{
+					TBuddyBlock<IndexType> BadBlock(Block.Start(), Block.Order() - 1);
+					TestSuballocator.Free(BadBlock);
+				}
+				catch (BuddySuballocatorException& e)
+				{
+					if (e.T == BuddySuballocatorException::Type::NotAllocated)
+					{
+						ExceptionHit = true;
+					}
+				}
+				Assert::IsTrue(ExceptionHit);
+				TestSuballocator.Free(Block);
 			}
 		}
 
