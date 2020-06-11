@@ -3,6 +3,7 @@
 #include "BuddySuballocator.h"
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
+using std::cout;
 
 namespace BuddySuballocatorTest
 {
@@ -12,7 +13,7 @@ namespace BuddySuballocatorTest
 
 		TEST_METHOD(IndexListTest)
 		{
-			using IndexType = unsigned __int8;
+			using IndexType = unsigned __int8; //What is using doing here?
 			using IndexNodeType = IndexNode<IndexType>;
 
 			//			IndexNodeType IndexTable[16];
@@ -154,7 +155,7 @@ namespace BuddySuballocatorTest
 			{
 				auto FailBlock = TestSuballocator.Allocate(1);
 			}
-			catch (BuddySuballocatorException &)
+			catch (BuddySuballocatorException &e)
 			{
 				ExceptionHit = true;
 			}
@@ -418,5 +419,49 @@ namespace BuddySuballocatorTest
 			auto Block5 = NewBlock(7, '5');
 			std::string s5 = TestData.data();
 		}
+
+		//Clayton's Tests:
+
+		TEST_METHOD(OperatingNearFullSuballocatorTest)
+		{
+			using IndexType = unsigned int;
+			constexpr size_t maxAllocations = 64;
+			TBuddySuballocator<IndexType, maxAllocations> testSuballocator;
+
+			auto block1 = testSuballocator.Allocate(32);
+			auto block2 = testSuballocator.Allocate(16);
+			auto block3 = testSuballocator.Allocate(8);
+			auto block4 = testSuballocator.Allocate(4);
+			auto block5 = testSuballocator.Allocate(2);
+			auto block6 = testSuballocator.Allocate(1);
+
+			//Verify that there is only one allocation left available
+
+			Assert::AreEqual<size_t>(1, testSuballocator.TotalFree());
+
+			//Allocate the last space
+			auto block7 = testSuballocator.Allocate(1);
+
+			//Verify that there are no allocations left
+			bool exceptionHit = false;
+			try
+			{
+				auto block = testSuballocator.Allocate(1);
+			}
+			catch (BuddySuballocatorException & e)
+			{
+				exceptionHit = true;
+			}
+
+			Assert::IsTrue(exceptionHit);
+
+			//Free the last block
+			testSuballocator.Free(block7);
+
+			//Verify there is only one allocation space left available
+			Assert::AreEqual<size_t>(1, testSuballocator.TotalFree());
+
+		}
+
 	};
 }
