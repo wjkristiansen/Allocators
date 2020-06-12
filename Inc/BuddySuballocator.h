@@ -85,31 +85,6 @@ struct IndexNode
 {
     _IndexType Next = 0;
     _IndexType Prev = 0;
-
-    //------------------------------------------------------------------------------------------------
-    // Returns true if the index references a degenerate (unused) index
-    bool IsDegenerate() const
-    {
-        return Next == 0 && Prev == 0;
-    }
-
-    //------------------------------------------------------------------------------------------------
-    // Allocated nodes store the log2 of allocation size in both Prev and Next
-    bool IsAllocated() const
-    {
-        return Next != 0 && Next != _IndexType(-1) && Next == Prev;
-    }
-
-    //------------------------------------------------------------------------------------------------
-    // Returns the size of the allocation for a given node
-    size_t AllocatedSize() const
-    {
-        size_t Size = 0;
-        if (IsAllocated())
-        {
-            return 1 << (Next - 1);
-        }
-    }
 };
 
 //------------------------------------------------------------------------------------------------
@@ -118,29 +93,33 @@ struct IndexNode
 // a reference to a IndexNode using operator[] such as an array of IndexNode
 // elements or std::vector<IndexNode>.  
 // 
-// All values in the list must be uniqe, no value can exist in the list more than once.
-//
-// TIndexList assumes all unallocated nodes are initialized to [Max_IndexType_Value,Max_IndexType_Value].
-//
-// The Max_IndexType_Value is reserved as a terminal value (i.e. _IndexType(-1)).  This means the full
-// range of indexable values is 0 through Max_IndexType_Value - 1.
+// All values in the list must be unique, no value can exist in the list more than once.
 //
 // If the index table is shared with another IIndexList, care must be taken to avoid
 // storing any given index in both lists.
 //
-// Degenerate (unused) indices must have Prev and Next set to 0
+// Actively linked nodes must point to two different nodes unless
+// they are the first or last node in the list.
 //
+// The first active node indexes itself as the prev value.
+//
+// The last active node indexes itself as the next value.
+//
+// Degenerate (unlinked) nodes must have Prev == Next and Prev != <Node index>
+//
+// Unused nodes can store a non-zero value by setting both next and prev
+//   to <node index> ^ value
+// 
 // Example list:
-// _IndexType -> 3-bit unsigned integer (max value is 7)
 // 1 <-> 5 <-> 3 <-> 2 <-> 6
-//
-//          ------------------------------------------------------------------
-//    Index |   0   |   1   |   2   |   3   |   4   |   5   |   6   ||   7   |
-//          ------------------------------------------------------------------
-//     Next |  (0)  |   5   |   6   |   2   |  (0)  |   3   |   7*  ||   -   |
-//          ------------------------------------------------------------------
-//     Prev |  (0)  |   7*  |   3   |   5   |  (0)  |   1   |   2   ||   -   |
-//          ------------------------------------------------------------------
+//          -----------------------------------------------------------------
+//    Index |   0   |   1   |   2   |   3   |   4   |   5   |   6   |   7   |
+//          -----------------------------------------------------------------
+//     Next |       |   5   |   6   |   2   |       |   3   |  *6   |       |
+//          -----------------------------------------------------------------
+//     Prev |       |  *1   |   3   |   5   |       |   1   |   2   |       |
+//          -----------------------------------------------------------------
+
 template<class _IndexType, class _IndexTableType>
 class TIndexList
 {
@@ -189,6 +168,26 @@ public:
         void MovePrev(const _IndexTableType& IndexTable);
     };
 
+    bool IsNodeDegenerate(const _IndexTableType& IndexTable, _IndexType Index) const
+    {
+        auto& Node = IndexTable[Index];
+        return Node.Prev != Index && Node.Prev == Node.Next;
+    }
+
+    void SetEncodedValue(_IndexTableType& IndexTable, _IndexType Index, _IndexType Value) const
+    {
+        if (Value != 0)
+        {
+            auto& Node = IndexTable[Index];
+            Node.Next = Node.Prev = Value ^ Index;
+        }
+    }
+
+    _IndexType GetEncodedValue(const _IndexTableType& IndexTable, _IndexType Index) const
+    {
+        return IsNodeDegenerate(IndexTable, Index) ? IndexTable[Index].Prev ^ Index : 0;
+    }
+
 private:
     size_t m_Size = 0;
     _IndexType m_FirstIndex = _TermValue;
@@ -208,18 +207,16 @@ public:
         if (0 == Size())
         {
             // New node in empty list
-            IndexTable[Index].Prev = _TermValue;
-            IndexTable[Index].Next = _TermValue;
+            IndexTable[Index].Prev = Index;
+            IndexTable[Index].Next = Index;
             m_LastIndex = Index;
         }
         else
         {
             // Insert the node at the start of the list
-            _IndexType Prev = _TermValue;
-            _IndexType Next = m_FirstIndex;
-            IndexTable[Index].Prev = Prev;
-            IndexTable[Index].Next = Next;
-            IndexTable[Next].Prev = Index;
+            IndexTable[Index].Prev = Index;
+            IndexTable[Index].Next = m_FirstIndex;
+            IndexTable[m_FirstIndex].Prev = Index;
         }
         m_FirstIndex = Index;
         ++m_Size;
@@ -244,7 +241,7 @@ public:
     // Returns the end iterator.
     Iterator End() const
     {
-        return Iterator(this, _TermValue);
+        return Iterator(this, m_LastIndex);
     }
 
     // Removes the element for the given iterator location.
@@ -258,37 +255,42 @@ public:
         if (--m_Size == 0)
         {
             // List is now empty
-            m_FirstIndex = _TermValue;
-            m_LastIndex = _TermValue;
+            m_FirstIndex = 0;
+            m_LastIndex = 0;
         }
         else
         {
-            _IndexType Prev = IndexTable[Index].Prev;
-            _IndexType Next = IndexTable[Index].Next;
-            if (Prev == _TermValue)
+            _IndexType OldPrev = IndexTable[Index].Prev;
+            _IndexType OldNext = IndexTable[Index].Next;
+            if (m_FirstIndex == Index)
             {
-                m_FirstIndex = Next;
+                // This is the start node
+                m_FirstIndex = OldNext;
+                IndexTable[m_FirstIndex].Prev = m_FirstIndex;
             }
             else
             {
-                IndexTable[Prev].Next = Next;
+                IndexTable[OldNext].Prev = OldPrev;
             }
 
-            if (Next == _TermValue)
+            if (m_LastIndex == Index)
             {
-                m_LastIndex = Prev;
+                // This is the end node
+                m_LastIndex = OldPrev;
+                IndexTable[m_LastIndex].Next = m_LastIndex;
+                OldNext = m_LastIndex;
             }
             else
             {
-                IndexTable[Next].Prev = Prev;
+                IndexTable[OldPrev].Next = OldNext;
             }
 
-            It = Iterator(this, Next);
+            It = Iterator(this, OldNext);
         }
 
         // Degenerate the node by indexing self
-        IndexTable[Index].Prev = 0;
-        IndexTable[Index].Next = 0;
+        IndexTable[Index].Prev = Index;
+        IndexTable[Index].Next = Index;
 
         return It;
     }
@@ -503,15 +505,13 @@ class TBuddySuballocator
     // Committed blocks are either split or allocated
     bool IsAllocated(const TBuddyBlock<_IndexType>& Block) const
     {
-        auto &Node = m_AllocationTable[Block.Start()];
-        return Node.IsAllocated() && Node.Prev == Block.Order() + 1;
+        return Block.Order() + 1 == m_FreeAllocations->GetEncodedValue(m_AllocationTable, Block.Start());
     }
 
     void TrackNodeAsAllocated(const TBuddyBlock<_IndexType>& Block)
     {
         // Encode the node with 1 + allocation order
-        auto& Node = m_AllocationTable[Block.Start()];
-        Node.Next = Node.Prev = Block.Order() + 1;
+        m_FreeAllocations->SetEncodedValue(m_AllocationTable, Block.Start(), Block.Order() + 1);
     }
 
     TBuddyBlock<_IndexType> AllocateImpl(_IndexType Order)
@@ -627,9 +627,10 @@ public:
 
             if (m_FreeAllocations[Order].Size() > 0)
             {
-                for (auto It = m_FreeAllocations[Order].Begin(); It != m_FreeAllocations[Order].End(); It.MoveNext(m_AllocationTable))
+                for (auto It = m_FreeAllocations[Order].Begin(); ; It.MoveNext(m_AllocationTable))
                 {
                     TotalFree += Size;
+                    if (It == m_FreeAllocations[Order].End()) break;
                 }
             }
         }
