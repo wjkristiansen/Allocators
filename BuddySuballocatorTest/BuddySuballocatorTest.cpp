@@ -85,7 +85,7 @@ namespace BuddySuballocatorTest
 
 				Assert::IsTrue(8 == It.Index());
 				It.MovePrev(IndexTable);
-				Assert::IsTrue(It == IndexList.End());
+				Assert::IsTrue(It == IndexList.Begin());
 
 				NodeCount--;
 				Assert::IsTrue(NodeCount == IndexList.Size());
@@ -113,11 +113,12 @@ namespace BuddySuballocatorTest
 
 			Assert::IsTrue(0 == IndexList.Size());
 
-			// Verify all nodes in the IndexTable are [0, 0]
+			// Verify all removed nodes in the IndexTable are [index, index]
 			for (auto i = 0; i < _countof(TestIndices); ++i)
 			{
-				Assert::AreEqual<IndexType>(IndexType(0), IndexTable[i].Next);
-				Assert::AreEqual<IndexType>(IndexType(0), IndexTable[i].Prev);
+				auto index = TestIndices[i];
+				Assert::AreEqual<IndexType>(IndexType(index), IndexTable[index].Next);
+				Assert::AreEqual<IndexType>(IndexType(index), IndexTable[index].Prev);
 			}
 		}
 
