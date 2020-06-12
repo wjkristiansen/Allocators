@@ -328,7 +328,7 @@ public:
     void Set(_IndexType Index, bool Value)
     {
         _IndexType ByteIndex = Index / 8;
-        _IndexType Mask = 1 << (Index & 0xff);
+        _IndexType Mask = 1 << ((Index % 8) & 0xff);
         if (Value)
         {
             Bytes[ByteIndex] |= Mask; // Set bit
@@ -457,9 +457,8 @@ class TBuddySuballocator
     static_assert(_IndexType(-1) > _IndexType(0), "_IndexType must be an unsigned type");
 
     // The first NumOrders nodes are terminal nodes
-    static const size_t NumSplitStateBits = _MaxSize / 2;
+    static const size_t NumSplitStateBits = _MaxSize;
     static const unsigned char MaxOrder = (unsigned char) Log2Ceil(_MaxSize);
-    static const size_t SplitStateBitArraySize = _MaxSize / 2;
 
     IndexNode<_IndexType> m_AllocationTable[_MaxSize]; // Table of all possible allocations
     typename TIndexList<_IndexType, decltype(m_AllocationTable)> m_FreeAllocations[MaxOrder + 1];
