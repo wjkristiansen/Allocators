@@ -13,7 +13,7 @@ namespace BuddySuballocatorTest
 
 		TEST_METHOD(IndexListTest)
 		{
-			using IndexType = unsigned __int8; //What is using doing here?
+			using IndexType = unsigned __int8;
 			using IndexNodeType = IndexNode<IndexType>;
 
 			//			IndexNodeType IndexTable[16];
@@ -155,7 +155,7 @@ namespace BuddySuballocatorTest
 			{
 				auto FailBlock = TestSuballocator.Allocate(1);
 			}
-			catch (BuddySuballocatorException &e)
+			catch (BuddySuballocatorException &)
 			{
 				ExceptionHit = true;
 			}
@@ -420,7 +420,6 @@ namespace BuddySuballocatorTest
 			std::string s5 = TestData.data();
 		}
 
-		//Clayton's Tests:
 
 		TEST_METHOD(OperatingNearFullSuballocatorTest)
 		{
@@ -448,7 +447,7 @@ namespace BuddySuballocatorTest
 			{
 				auto block = testSuballocator.Allocate(1);
 			}
-			catch (BuddySuballocatorException & e)
+			catch (BuddySuballocatorException &)
 			{
 				exceptionHit = true;
 			}
