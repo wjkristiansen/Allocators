@@ -311,18 +311,38 @@ void TIndexList<_IndexType, _IndexTableType>::Iterator::MovePrev(const _IndexTab
 
 //------------------------------------------------------------------------------------------------
 // Describes an array of bits
-template<class _IndexType, size_t _Size>
+template<class _IndexType>
 class TBitArray
 {
-    static const size_t NumBytes = _Size < 8 ? 1 : _Size / 8;
-    char Bytes[NumBytes] = {0};
+    struct Byte
+    {
+        char b = 0;
+    };
+
+    const size_t m_Size = 0;
+    const size_t m_NumBytes = 0;
+    Byte *m_pBytes = nullptr;
 
 public:
+    TBitArray(size_t Size) :
+        m_Size(Size),
+        m_NumBytes(Size < 8 ? 1 : m_Size / 8)
+    {
+        m_pBytes = new Byte[m_NumBytes];
+    }
+
+    ~TBitArray()
+    {
+        delete m_pBytes;
+    }
+
+    const size_t Size() const { return m_Size; }
+
     bool Get(_IndexType Index) const
     {
         _IndexType ByteIndex = Index / 8;
         _IndexType Mask = 1 << ((Index % 8) & 0xff);
-        return (Bytes[ByteIndex] & Mask) == Mask;
+        return (m_pBytes[ByteIndex].b & Mask) == Mask;
     }
 
     void Set(_IndexType Index, bool Value)
@@ -331,11 +351,11 @@ public:
         _IndexType Mask = 1 << ((Index % 8) & 0xff);
         if (Value)
         {
-            Bytes[ByteIndex] |= Mask; // Set bit
+            m_pBytes[ByteIndex].b |= Mask; // Set bit
         }
         else
         {
-            Bytes[ByteIndex] &= ~Mask; // Clear bit
+            m_pBytes[ByteIndex].b &= ~Mask; // Clear bit
         }
     }
 
@@ -451,18 +471,20 @@ struct BuddySuballocatorException
 // StateIndex = (1 << Level) + IndexInLevel - 1
 // ParentStateIndex = (StateIndex - 1) >> 1
 
-template<class _IndexType, size_t _MaxSize>
+template<class _IndexType>
 class TBuddySuballocator
 {
     static_assert(_IndexType(-1) > _IndexType(0), "_IndexType must be an unsigned type");
 
-    // The first NumOrders nodes are terminal nodes
-    static const size_t NumSplitStateBits = _MaxSize;
-    static const unsigned char MaxOrder = (unsigned char) Log2Ceil(_MaxSize);
+    using _IndexNodeType = IndexNode<_IndexType>;
+    using _IndexListType = typename TIndexList<_IndexType, _IndexNodeType *>;
+    using _BitArrayType = typename TBitArray<_IndexType>;
 
-    IndexNode<_IndexType> m_AllocationTable[_MaxSize]; // Table of all possible allocations
-    typename TIndexList<_IndexType, decltype(m_AllocationTable)> m_FreeAllocations[MaxOrder + 1];
-    typename TBitArray<_IndexType, NumSplitStateBits> m_SplitStateBitArray;
+    const size_t m_MaxSize;
+    const _IndexType m_MaxOrder;
+    _IndexNodeType *m_AllocationTable; // Table of all possible allocations
+    _IndexListType* m_FreeAllocations;
+    _BitArrayType m_SplitStateBitArray;
 
     // Returns the buddy block
     static TBuddyBlock<_IndexType> BuddyBlock(const TBuddyBlock<_IndexType> &Block)
@@ -471,13 +493,13 @@ class TBuddySuballocator
     }
 
     // Returns the parent block
-    static TBuddyBlock<_IndexType> ParentBlock(const TBuddyBlock<_IndexType> &Block)
+    TBuddyBlock<_IndexType> ParentBlock(const TBuddyBlock<_IndexType> &Block) const
     {
         TBuddyBlock<_IndexType> ParentBlock;
-        auto ParentBlockOrder = Block.Order() + 1;
+        _IndexType ParentBlockOrder = Block.Order() + 1;
         _IndexType ParentBlockSize = _IndexType(1 << ParentBlockOrder);
 
-        if (ParentBlockOrder <= MaxOrder)
+        if (ParentBlockOrder <= m_MaxOrder)
         {
             _IndexType ParentStart = Block.Start() & ~(ParentBlockSize - 1);
             ParentBlock = TBuddyBlock<_IndexType>(ParentStart, ParentBlockOrder);
@@ -487,9 +509,9 @@ class TBuddySuballocator
     }
 
     // Returns the state index of a block
-    static _IndexType StateIndex(const TBuddyBlock<_IndexType> &Block)
+    _IndexType StateIndex(const TBuddyBlock<_IndexType> &Block) const
     {
-        _IndexType Level = MaxOrder - Block.Order();
+        _IndexType Level = m_MaxOrder - Block.Order();
         _IndexType IndexInLevel = Block.Start() >> Block.Order();
         return (1 << Level) + IndexInLevel - 1;
     }
@@ -515,7 +537,7 @@ class TBuddySuballocator
 
     TBuddyBlock<_IndexType> AllocateImpl(_IndexType Order)
     {
-        if (Order <= MaxOrder)
+        if (Order <= m_MaxOrder)
         {
             if (m_FreeAllocations[Order].Size())
             {
@@ -523,7 +545,7 @@ class TBuddySuballocator
                 auto Start = It.Index();
                 auto Block = TBuddyBlock<_IndexType>(Start, Order);
                 m_FreeAllocations[Order].PopFront(m_AllocationTable);
-                if (Order < MaxOrder)
+                if (Order < m_MaxOrder)
                 {
                     auto ParentBlock = TBuddySuballocator::ParentBlock(Block);
                     auto StateIndex = TBuddySuballocator::StateIndex(ParentBlock);
@@ -559,7 +581,7 @@ class TBuddySuballocator
 
     void FreeImpl(const TBuddyBlock<_IndexType> &Block)
     {
-        if (Block.Order() == MaxOrder)
+        if (Block.Order() == m_MaxOrder)
         {
             // Add the block to the free list
             m_FreeAllocations[Block.Order()].PushFront(Block.Start(), m_AllocationTable);
@@ -592,10 +614,21 @@ class TBuddySuballocator
     }
 
 public:
-    TBuddySuballocator() :
-        m_AllocationTable{ 0 }
+    TBuddySuballocator(size_t MaxSize) :
+        m_MaxSize(MaxSize),
+        m_SplitStateBitArray(MaxSize),
+        m_MaxOrder((unsigned char)Log2Ceil(MaxSize))
     {
-        m_FreeAllocations[MaxOrder].PushFront(0, m_AllocationTable);
+        m_AllocationTable = new _IndexNodeType[m_MaxSize];
+        m_FreeAllocations = new _IndexListType[m_MaxOrder + 1];
+
+        m_FreeAllocations[m_MaxOrder].PushFront(0, m_AllocationTable);
+    }
+
+    ~TBuddySuballocator()
+    {
+        delete m_AllocationTable;
+        delete m_FreeAllocations;
     }
 
     TBuddyBlock<_IndexType> Allocate(size_t Size)
@@ -620,7 +653,7 @@ public:
     { 
         size_t TotalFree(0);
 
-        for (auto Order = MaxOrder; Order != (unsigned char)(-1); Order--)
+        for (auto Order = m_MaxOrder; Order != (_IndexType)(-1); Order--)
         {
             size_t Size = size_t(1) << Order;
 
@@ -640,7 +673,7 @@ public:
     size_t MaxAllocationSize() const
     {
         size_t MaxSize = 0;
-        for (auto Order = MaxOrder; Order != (unsigned char)(-1); Order--)
+        for (auto Order = m_MaxOrder; Order != (_IndexType)(-1); Order--)
         {
             if (m_FreeAllocations[Order].Size() != 0)
             {

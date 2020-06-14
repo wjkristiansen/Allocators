@@ -127,7 +127,7 @@ namespace BuddySuballocatorTest
 		{
 			using IndexType = unsigned char;
 			constexpr size_t MaxAllocations = 32;
-			TBuddySuballocator<IndexType, MaxAllocations> TestSuballocator;
+			TBuddySuballocator<IndexType> TestSuballocator(MaxAllocations);
 
 			// Some basic tests
 			auto Block1 = TestSuballocator.Allocate(6);
@@ -192,7 +192,7 @@ namespace BuddySuballocatorTest
 		{
 			using IndexType = unsigned char;
 			constexpr size_t MaxAllocations = 4;
-			TBuddySuballocator<IndexType, MaxAllocations> TestSuballocator;
+			TBuddySuballocator<IndexType> TestSuballocator(MaxAllocations);
 			std::list<TBuddyBlock<IndexType>> Blocks;
 
 			// Allocate all possible smallest allocations
@@ -351,18 +351,18 @@ namespace BuddySuballocatorTest
 		{
 			using IndexType = unsigned char;
 			constexpr size_t MaxAllocations = 32;
-			TBuddySuballocator<IndexType, MaxAllocations> TestSuballocator;
+			TBuddySuballocator<IndexType> TestSuballocator(MaxAllocations);
 			std::vector<char> TestData(MaxAllocations + 1, '-');
 			TestData[MaxAllocations] = 0;
 
 			class ScopedBuddyBlock
 			{
 				TBuddyBlock<IndexType> m_Block;
-				TBuddySuballocator<IndexType, MaxAllocations>* m_pAllocator = nullptr;
+				TBuddySuballocator<IndexType>* m_pAllocator = nullptr;
 
 			public:
 				ScopedBuddyBlock() = default;
-				ScopedBuddyBlock(const TBuddyBlock<IndexType>& Block, TBuddySuballocator<IndexType, MaxAllocations>* pAllocator) :
+				ScopedBuddyBlock(const TBuddyBlock<IndexType>& Block, TBuddySuballocator<IndexType>* pAllocator) :
 					m_Block(Block),
 					m_pAllocator(pAllocator)
 				{
@@ -425,7 +425,7 @@ namespace BuddySuballocatorTest
 		{
 			using IndexType = unsigned int;
 			constexpr size_t maxAllocations = 64;
-			TBuddySuballocator<IndexType, maxAllocations> testSuballocator;
+			TBuddySuballocator<IndexType> testSuballocator(maxAllocations);
 
 			auto block1 = testSuballocator.Allocate(32);
 			auto block2 = testSuballocator.Allocate(16);
@@ -464,7 +464,7 @@ namespace BuddySuballocatorTest
 
 		TEST_METHOD(BitArrayTest)
 		{
-			TBitArray<int, 16> TestBitArray;
+			TBitArray<int> TestBitArray(16);
 
 			// Verify init to false
 			for (int i = 0; i < 16; ++i)
