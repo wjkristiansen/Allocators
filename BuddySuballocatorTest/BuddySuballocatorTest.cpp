@@ -462,5 +462,61 @@ namespace BuddySuballocatorTest
 
 		}
 
+		TEST_METHOD(BitArrayTest)
+		{
+			TBitArray<int, 16> TestBitArray;
+
+			// Verify init to false
+			for (int i = 0; i < 16; ++i)
+			{
+				Assert::AreEqual(false, TestBitArray.Get(i));
+			}
+
+			// Verify setting and unsetting one bit at a time
+			for (int i = 8; i < 16; ++i)
+			{
+				TestBitArray.Set(i, true);
+
+				for (int j = 0; j < 16; ++j)
+				{
+					Assert::AreEqual(j == i, TestBitArray[j]);
+				}
+
+				TestBitArray.Set(i, false);
+				Assert::AreEqual(TestBitArray.Get(i), false);
+			}
+
+			// Verify setting all bits
+			for (int i = 0; i < 16; ++i)
+			{
+				Assert::AreEqual(TestBitArray[i], false);
+				TestBitArray.Set(i, true);
+				Assert::AreEqual(TestBitArray[i], true);
+			}
+
+			// Verify clearing and resetting one bit at a time
+			for (int i = 0; i < 16; ++i)
+			{
+				Assert::AreEqual(TestBitArray[i], true);
+
+				TestBitArray.Set(i, false);
+
+				for (int j = 0; j < 16; ++j)
+				{
+					Assert::AreEqual(j != i, TestBitArray[j]);
+				}
+
+				TestBitArray.Set(i, true);
+				Assert::AreEqual(TestBitArray.Get(i), true);
+			}
+
+			// Verify setting all bits back to false
+			for (int i = 0; i < 16; ++i)
+			{
+				Assert::AreEqual(TestBitArray[i], true);
+				TestBitArray.Set(i, false);
+				Assert::AreEqual(TestBitArray[i], false);
+			}
+		}
 	};
 }
