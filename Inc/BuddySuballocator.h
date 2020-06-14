@@ -321,7 +321,7 @@ public:
     bool Get(_IndexType Index) const
     {
         _IndexType ByteIndex = Index / 8;
-        _IndexType Mask = 1 << (Index & 0xff);
+        _IndexType Mask = 1 << ((Index % 8) & 0xff);
         return (Bytes[ByteIndex] & Mask) == Mask;
     }
 
