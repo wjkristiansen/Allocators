@@ -378,7 +378,7 @@ class TBuddyBlock
 public:
     TBuddyBlock() :
         m_Start(0),
-        m_Order(unsigned char(-1)) {}
+        m_Order(static_cast<unsigned char>(-1)) {}
 
     TBuddyBlock(_IndexType start, unsigned char order) :
         m_Start(start),
@@ -386,7 +386,7 @@ public:
 
     _IndexType Start() const { return m_Start; }
     unsigned char Order() const { return m_Order; }
-    size_t Size() const { return m_Order == unsigned char(-1) ? 0 : 1 << m_Order; }
+    size_t Size() const { return m_Order == static_cast<unsigned char>(-1) ? 0 : 1 << m_Order; }
 
     bool operator==(TBuddyBlock& o) const { return m_Start == o.m_Start && m_Order == o.m_Order; }
     bool operator!=(TBuddyBlock& o) const { return !operator==(o); }
