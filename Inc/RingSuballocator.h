@@ -7,12 +7,14 @@
 template<typename _IndexType>
 class TRingSuballocator
 {
-    _IndexType m_Start;
-    _IndexType m_End;
-    size_t m_Size;
-    size_t m_FreeSize;
+    _IndexType m_Start = 0;
+    _IndexType m_End = 0;
+    size_t m_Size = 0;
+    size_t m_FreeSize = 0;
 
 public:
+    TRingSuballocator() = default;
+
     TRingSuballocator(size_t Size) :
         m_Start(0),
         m_End(0),
@@ -53,7 +55,7 @@ public:
         m_Start = _IndexType((m_Start + Size) % m_Size);
     }
 
-    void Reset()
+    void Reset(size_t Size)
     {
         m_FreeSize = m_Size;
         m_Start = 0;

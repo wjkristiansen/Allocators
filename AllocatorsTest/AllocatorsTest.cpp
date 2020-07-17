@@ -560,13 +560,24 @@ namespace AllocatorsTest
 
 			Assert::IsTrue(HitBadAlloc);
 
-			Allocator.Reset();
+			Allocator.Reset(256);
 			Assert::IsTrue(256 == Allocator.FreeSize());
 			Loc = Allocator.Allocate(256);
 			Assert::IsTrue(Loc == 0);
 			Assert::IsTrue(0 == Allocator.FreeSize());
 			Assert::IsTrue(256 == Allocator.AllocatedSize());
-			Allocator.Reset();
+			Allocator.Reset(156);
+
+			Allocator.Allocate(1);
+			Allocator.Allocate(2);
+			Allocator.Allocate(3);
+			Allocator.Allocate(4);
+			Assert::IsTrue(10 == Allocator.AllocatedSize());
+			Allocator.Free(10);
+			Assert::IsTrue(0 == Allocator.AllocatedSize());
+			Loc = Allocator.Allocate(1);
+			Assert::IsTrue(10 == Loc);
+			Allocator.Reset(64);
 		}
 	};
 }
