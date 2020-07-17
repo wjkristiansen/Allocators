@@ -52,4 +52,11 @@ public:
         m_FreeSize += Size;
         m_Start = _IndexType((m_Start + Size) % m_Size);
     }
+
+    void Reset()
+    {
+        m_FreeSize = m_Size;
+        m_Start = 0;
+        m_End = 0;
+    }
 };

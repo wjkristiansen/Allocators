@@ -31,6 +31,26 @@ namespace RingSuballocatorTest
 			Assert::IsTrue(Allocator.FreeSize() == 56);
 			Loc = Allocator.Allocate(50);
 			Assert::IsTrue(Loc == 199);
+			Assert::IsTrue(6 == Allocator.FreeSize());
+			bool HitBadAlloc = false;
+			try
+			{
+				Allocator.Allocate(7);
+			}
+			catch (const std::bad_alloc &)
+			{
+				HitBadAlloc = true;
+			}
+
+			Assert::IsTrue(HitBadAlloc);
+
+			Allocator.Reset();
+			Assert::IsTrue(256 == Allocator.FreeSize());
+			Loc = Allocator.Allocate(256);
+			Assert::IsTrue(Loc == 0);
+			Assert::IsTrue(0 == Allocator.FreeSize());
+			Assert::IsTrue(256 == Allocator.AllocatedSize());
+			Allocator.Reset();
 		}
 	};
 }
