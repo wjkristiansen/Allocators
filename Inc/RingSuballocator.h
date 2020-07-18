@@ -57,6 +57,7 @@ public:
 
     void Reset(size_t Size)
     {
+        m_Size = Size;
         m_FreeSize = m_Size;
         m_Start = 0;
         m_End = 0;
