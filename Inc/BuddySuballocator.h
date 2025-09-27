@@ -388,8 +388,8 @@ public:
     unsigned char Order() const { return m_Order; }
     size_t Size() const { return m_Order == static_cast<unsigned char>(-1) ? 0 : 1 << m_Order; }
 
-    bool operator==(TBuddyBlock& o) const { return m_Start == o.m_Start && m_Order == o.m_Order; }
-    bool operator!=(TBuddyBlock& o) const { return !operator==(o); }
+    bool operator==(const TBuddyBlock& o) const { return m_Start == o.m_Start && m_Order == o.m_Order; }
+    bool operator!=(const TBuddyBlock& o) const { return !operator==(o); }
 };
 
 //------------------------------------------------------------------------------------------------
