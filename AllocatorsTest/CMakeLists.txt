@@ -1,6 +1,24 @@
 # AllocatorsTest - Test application for Allocators library
 cmake_minimum_required(VERSION 3.24)
 
+project(AllocatorsTest)
+
+# Find Google Test
+find_package(GTest QUIET)
+if(NOT GTest_FOUND)
+    # Use FetchContent to get Google Test
+    include(FetchContent)
+    
+    FetchContent_Declare(
+        googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG v1.14.0
+    )
+    # For Windows: Prevent overriding the parent project's compiler/linker settings
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(googletest)
+endif()
+
 # Define the test executable
 add_executable(AllocatorsTest
     AllocatorsTest.cpp
@@ -21,14 +39,7 @@ target_include_directories(AllocatorsTest PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../Inc
 )
 
-# Use FetchContent to get Google Test
-include(FetchContent)
-
-FetchContent_Declare(
-    googletest
-    GIT_REPOSITORY https://github.com/google/googletest.git
-    GIT_TAG v1.14.0
-)
+# GoogleTest setup moved to top of file
 
 # For Windows: Prevent overriding the parent project's compiler/linker settings
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
@@ -83,8 +94,3 @@ target_precompile_headers(AllocatorsTest PRIVATE pch.h)
 # Register with CTest
 enable_testing()
 add_test(NAME AllocatorsTests COMMAND AllocatorsTest)
-
-# Installation
-install(TARGETS AllocatorsTest
-    RUNTIME DESTINATION bin
-)
