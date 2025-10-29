@@ -341,14 +341,14 @@ public:
     bool Get(_IndexType Index) const
     {
         _IndexType ByteIndex = Index / 8;
-        _IndexType Mask = 1 << ((Index % 8) & 0xff);
+        _IndexType Mask = _IndexType(1) << ((Index % 8) & 0xff);
         return (m_pBytes[ByteIndex].b & Mask) == Mask;
     }
 
     void Set(_IndexType Index, bool Value)
     {
         _IndexType ByteIndex = Index / 8;
-        _IndexType Mask = 1 << ((Index % 8) & 0xff);
+        _IndexType Mask = _IndexType(1) << ((Index % 8) & 0xff);
         if (Value)
         {
             m_pBytes[ByteIndex].b |= Mask; // Set bit
@@ -373,20 +373,20 @@ template<typename _IndexType>
 class TBuddyBlock
 {
     _IndexType m_Start;
-    unsigned char m_Order;
+    uint8_t m_Order;
 
 public:
     TBuddyBlock() :
         m_Start(0),
-        m_Order(static_cast<unsigned char>(-1)) {}
+        m_Order(static_cast<uint8_t>(-1)) {}
 
-    TBuddyBlock(_IndexType start, unsigned char order) :
+    TBuddyBlock(_IndexType start, uint8_t order) :
         m_Start(start),
         m_Order(order) {}
 
     _IndexType Start() const { return m_Start; }
-    unsigned char Order() const { return m_Order; }
-    size_t Size() const { return m_Order == static_cast<unsigned char>(-1) ? 0 : 1 << m_Order; }
+    uint8_t Order() const { return m_Order; }
+    size_t Size() const { return m_Order == static_cast<uint8_t>(-1) ? 0 : 1 << m_Order; }
 
     bool operator==(const TBuddyBlock& o) const { return m_Start == o.m_Start && m_Order == o.m_Order; }
     bool operator!=(const TBuddyBlock& o) const { return !operator==(o); }
@@ -481,7 +481,7 @@ class TBuddySuballocator
     using _BitArrayType = typename TBitArray<_IndexType>;
 
     const size_t m_MaxSize;
-    const _IndexType m_MaxOrder;
+    uint8_t m_MaxOrder;
     _IndexNodeType *m_AllocationTable; // Table of all possible allocations
     _IndexListType* m_FreeAllocations;
     _BitArrayType m_SplitStateBitArray;
@@ -496,8 +496,8 @@ class TBuddySuballocator
     TBuddyBlock<_IndexType> ParentBlock(const TBuddyBlock<_IndexType> &Block) const
     {
         TBuddyBlock<_IndexType> ParentBlock;
-        _IndexType ParentBlockOrder = Block.Order() + 1;
-        _IndexType ParentBlockSize = _IndexType(1 << ParentBlockOrder);
+        uint8_t ParentBlockOrder = Block.Order() + 1;
+        _IndexType ParentBlockSize = _IndexType(1) << ParentBlockOrder;
 
         if (ParentBlockOrder <= m_MaxOrder)
         {
@@ -511,9 +511,9 @@ class TBuddySuballocator
     // Returns the state index of a block
     _IndexType StateIndex(const TBuddyBlock<_IndexType> &Block) const
     {
-        _IndexType Level = m_MaxOrder - Block.Order();
+        uint8_t Level = m_MaxOrder - Block.Order();
         _IndexType IndexInLevel = Block.Start() >> Block.Order();
-        return (1 << Level) + IndexInLevel - 1;
+        return (_IndexType(1) << Level) + IndexInLevel - 1;
     }
 
     // Returns true if the the given block is split
@@ -535,7 +535,7 @@ class TBuddySuballocator
         m_FreeAllocations->SetEncodedValue(m_AllocationTable, Block.Start(), Block.Order() + 1);
     }
 
-    TBuddyBlock<_IndexType> AllocateImpl(_IndexType Order)
+    TBuddyBlock<_IndexType> AllocateImpl(uint8_t Order)
     {
         if (Order <= m_MaxOrder)
         {
@@ -561,10 +561,10 @@ class TBuddySuballocator
                 auto ParentBlock = AllocateImpl(Order + 1);
                 auto StateIndex = TBuddySuballocator::StateIndex(ParentBlock);
 
-                if (ParentBlock.Order() != _IndexType(-1))
+                if (ParentBlock.Order() != uint8_t(-1))
                 {
                     // Split the parent block
-                    _IndexType BlockSize = 1 << Order;
+                    _IndexType BlockSize = _IndexType(1) << Order;
                     auto Block = TBuddyBlock<_IndexType>(ParentBlock.Start(), Order);
                     m_FreeAllocations[Order].PushFront(ParentBlock.Start() + BlockSize, m_AllocationTable);
                     m_SplitStateBitArray.Set(StateIndex, true); // Mark the parent as split
@@ -617,7 +617,7 @@ public:
     TBuddySuballocator(size_t MaxSize) :
         m_MaxSize(MaxSize),
         m_SplitStateBitArray(MaxSize),
-        m_MaxOrder((unsigned char)Log2Ceil(MaxSize))
+        m_MaxOrder((uint8_t)Log2Ceil(MaxSize))
     {
         m_AllocationTable = new _IndexNodeType[m_MaxSize];
         m_FreeAllocations = new _IndexListType[m_MaxOrder + 1];
@@ -633,9 +633,30 @@ public:
 
     TBuddyBlock<_IndexType> Allocate(size_t Size)
     {
-        _IndexType Order = (_IndexType) Log2Ceil(Size);
+        uint8_t Order = (uint8_t) Log2Ceil(Size);
         auto Block = AllocateImpl(Order);
         return Block;
+    }
+
+    // Returns the block size that would be allocated for a given requested size
+    // This allows reconstruction of a TBuddyBlock from an offset and the original requested size
+    static size_t GetBlockSize(size_t RequestedSize)
+    {
+        _IndexType Order = (_IndexType) Log2Ceil(RequestedSize);
+        return size_t(1) << Order;
+    }
+
+    // Returns the block order that would be used for a given requested size
+    static uint8_t GetBlockOrder(size_t RequestedSize)
+    {
+        return (uint8_t) Log2Ceil(RequestedSize);
+    }
+
+    // Reconstructs a TBuddyBlock from an offset and the original requested allocation size
+    static TBuddyBlock<_IndexType> ReconstructBlock(_IndexType Offset, size_t RequestedSize)
+    {
+        uint8_t Order = (uint8_t) Log2Ceil(RequestedSize);
+        return TBuddyBlock<_IndexType>(Offset, Order);
     }
 
     void Free(const TBuddyBlock<_IndexType> &Block)
