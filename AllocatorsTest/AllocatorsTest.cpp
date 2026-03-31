@@ -31,7 +31,6 @@ namespace AllocatorsTest
 
 		// Build list from the indices in TestIndices
 		IndexType First = TestIndices[0];
-		IndexType Last = TestIndices[0];
 		IndexType i;
 		IndexType NodeCount = IndexType(sizeof(TestIndices) / sizeof(TestIndices[0]));
 		for (i = 0; i < NodeCount; ++i)
@@ -116,9 +115,9 @@ namespace AllocatorsTest
 		EXPECT_TRUE(0 == IndexList.Size());
 
 		// Verify all removed nodes in the IndexTable are [index, index]
-		for (auto i = 0; i < sizeof(TestIndices) / sizeof(TestIndices[0]); ++i)
+		for (IndexType j = 0; j < sizeof(TestIndices) / sizeof(TestIndices[0]); ++j)
 		{
-			auto index = TestIndices[i];
+			auto index = TestIndices[j];
 			EXPECT_EQ(IndexType(index), IndexTable[index].Next);
 			EXPECT_EQ(IndexType(index), IndexTable[index].Prev);
 		}
@@ -515,6 +514,195 @@ namespace AllocatorsTest
 			TestBitArray.Set(i, false);
 			EXPECT_EQ(false, TestBitArray[i]);
 		}
+	}
+
+	TEST_F(BuddySuballocatorTestClass, GetCapacity)
+	{
+		TBuddySuballocator<unsigned int> alloc(64);
+		EXPECT_EQ(64u, alloc.GetCapacity());
+	}
+
+	TEST_F(BuddySuballocatorTestClass, TryAllocateSuccess)
+	{
+		TBuddySuballocator<unsigned int> alloc(32);
+		TBuddyBlock<unsigned int> block;
+		EXPECT_TRUE(alloc.TryAllocate(8, block));
+		EXPECT_EQ(0u, block.Start());
+		EXPECT_EQ(8u, block.Size());
+	}
+
+	TEST_F(BuddySuballocatorTestClass, TryAllocateFailsWhenFull)
+	{
+		TBuddySuballocator<unsigned int> alloc(4);
+		auto b = alloc.Allocate(4);
+		TBuddyBlock<unsigned int> block;
+		EXPECT_FALSE(alloc.TryAllocate(1, block));
+		alloc.Free(b);
+	}
+
+	TEST_F(BuddySuballocatorTestClass, TryFreeSuccess)
+	{
+		TBuddySuballocator<unsigned int> alloc(16);
+		auto block = alloc.Allocate(4);
+		EXPECT_TRUE(alloc.TryFree(block));
+		EXPECT_EQ(16u, alloc.TotalFree());
+	}
+
+	TEST_F(BuddySuballocatorTestClass, TryFreeReturnsFalseForUnallocated)
+	{
+		TBuddySuballocator<unsigned int> alloc(16);
+		TBuddyBlock<unsigned int> fakeBlock(0, 2);
+		EXPECT_FALSE(alloc.TryFree(fakeBlock));
+	}
+
+	TEST_F(BuddySuballocatorTestClass, BitArrayResize)
+	{
+		TBitArray<unsigned int> bits(16);
+		bits.Set(3, true);
+		bits.Set(7, true);
+		bits.Set(15, true);
+
+		bits.Resize(32);
+		EXPECT_EQ(32u, bits.Size());
+		EXPECT_TRUE(bits.Get(3));
+		EXPECT_TRUE(bits.Get(7));
+		EXPECT_TRUE(bits.Get(15));
+		EXPECT_FALSE(bits.Get(16));
+		EXPECT_FALSE(bits.Get(31));
+
+		// New bits are usable
+		bits.Set(24, true);
+		EXPECT_TRUE(bits.Get(24));
+	}
+
+	TEST_F(BuddySuballocatorTestClass, GrowDoublesCapacity)
+	{
+		TBuddySuballocator<unsigned int> alloc(16);
+		EXPECT_EQ(16u, alloc.GetCapacity());
+
+		alloc.Grow();
+		EXPECT_EQ(32u, alloc.GetCapacity());
+		EXPECT_EQ(32u, alloc.TotalFree());
+	}
+
+	TEST_F(BuddySuballocatorTestClass, GrowPreservesExistingAllocations)
+	{
+		TBuddySuballocator<unsigned int> alloc(16);
+
+		auto b1 = alloc.Allocate(4);
+		auto b2 = alloc.Allocate(8);
+		size_t freeBeforeGrow = alloc.TotalFree();  // 4 free in old space
+
+		alloc.Grow();  // 16 → 32
+
+		// Free space should be old free + new 16
+		EXPECT_EQ(freeBeforeGrow + 16, alloc.TotalFree());
+
+		// Old allocations can still be freed
+		EXPECT_TRUE(alloc.TryFree(b1));
+		EXPECT_TRUE(alloc.TryFree(b2));
+		EXPECT_EQ(32u, alloc.TotalFree());
+
+		// Full space is now allocatable
+		auto bFull = alloc.Allocate(32);
+		EXPECT_EQ(0u, bFull.Start());
+		EXPECT_EQ(32u, bFull.Size());
+		alloc.Free(bFull);
+	}
+
+	TEST_F(BuddySuballocatorTestClass, GrowAllowsAllocationInNewSpace)
+	{
+		TBuddySuballocator<unsigned int> alloc(8);
+
+		// Fill the allocator
+		auto b1 = alloc.Allocate(4);
+		auto b2 = alloc.Allocate(4);
+		EXPECT_EQ(0u, alloc.TotalFree());
+
+		// Allocation must fail
+		TBuddyBlock<unsigned int> block;
+		EXPECT_FALSE(alloc.TryAllocate(1, block));
+
+		// Grow and allocate in the new space
+		alloc.Grow();
+		EXPECT_TRUE(alloc.TryAllocate(4, block));
+		EXPECT_EQ(8u, block.Start());  // New space starts at old capacity
+
+		alloc.Free(b1);
+		alloc.Free(b2);
+		alloc.TryFree(block);
+	}
+
+	TEST_F(BuddySuballocatorTestClass, GrowMultipleTimes)
+	{
+		TBuddySuballocator<unsigned int> alloc(4);
+		EXPECT_EQ(4u, alloc.GetCapacity());
+
+		alloc.Grow();  // 4 → 8
+		EXPECT_EQ(8u, alloc.GetCapacity());
+
+		alloc.Grow();  // 8 → 16
+		EXPECT_EQ(16u, alloc.GetCapacity());
+
+		// Can allocate the full new space
+		auto b = alloc.Allocate(16);
+		EXPECT_EQ(0u, b.Start());
+		EXPECT_EQ(16u, b.Size());
+		alloc.Free(b);
+	}
+
+	TEST_F(BuddySuballocatorTestClass, GrowWithFragmentedAllocations)
+	{
+		TBuddySuballocator<unsigned int> alloc(8);
+
+		// Create fragmentation: allocate 4 x size-1, free alternating
+		auto b0 = alloc.Allocate(1);
+		auto b1 = alloc.Allocate(1);
+		auto b2 = alloc.Allocate(1);
+		auto b3 = alloc.Allocate(1);
+		auto b4 = alloc.Allocate(1);
+		auto b5 = alloc.Allocate(1);
+		auto b6 = alloc.Allocate(1);
+		auto b7 = alloc.Allocate(1);
+
+		alloc.Free(b1);
+		alloc.Free(b3);
+		alloc.Free(b5);
+		alloc.Free(b7);
+		// Old space: 4 free slots but fragmented (no contiguous pair → can't alloc size 2)
+
+		TBuddyBlock<unsigned int> block;
+		EXPECT_FALSE(alloc.TryAllocate(2, block));
+
+		alloc.Grow();  // 8 → 16
+
+		// New space (8..15) is contiguous: can allocate size 8
+		EXPECT_TRUE(alloc.TryAllocate(8, block));
+		EXPECT_EQ(8u, block.Start());
+		alloc.TryFree(block);
+
+		// Old allocations still valid
+		alloc.Free(b0);
+		alloc.Free(b2);
+		alloc.Free(b4);
+		alloc.Free(b6);
+		EXPECT_EQ(16u, alloc.TotalFree());
+	}
+
+	TEST_F(BuddySuballocatorTestClass, GrowThenFreeMergesToNewRoot)
+	{
+		TBuddySuballocator<unsigned int> alloc(4);
+
+		auto b = alloc.Allocate(4);  // fills entire old space
+		alloc.Grow();  // 4 → 8
+		alloc.Free(b);  // left half free
+
+		// Right half is also free → should merge to root (size 8)
+		EXPECT_EQ(8u, alloc.MaxAllocationSize());
+		auto bFull = alloc.Allocate(8);
+		EXPECT_EQ(0u, bFull.Start());
+		EXPECT_EQ(8u, bFull.Size());
+		alloc.Free(bFull);
 	}
 
 	class RingSuballocatorTest : public ::testing::Test

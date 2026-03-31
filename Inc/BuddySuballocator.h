@@ -319,8 +319,8 @@ class TBitArray
         char b = 0;
     };
 
-    const size_t m_Size = 0;
-    const size_t m_NumBytes = 0;
+    size_t m_Size = 0;
+    size_t m_NumBytes = 0;
     Byte *m_pBytes = nullptr;
 
 public:
@@ -333,10 +333,53 @@ public:
 
     ~TBitArray()
     {
-        delete m_pBytes;
+        delete[] m_pBytes;
+    }
+
+    // Non-copyable
+    TBitArray(const TBitArray&) = delete;
+    TBitArray& operator=(const TBitArray&) = delete;
+
+    // Movable
+    TBitArray(TBitArray&& o) noexcept
+        : m_Size(o.m_Size), m_NumBytes(o.m_NumBytes), m_pBytes(o.m_pBytes)
+    {
+        o.m_pBytes = nullptr;
+        o.m_Size = 0;
+        o.m_NumBytes = 0;
+    }
+
+    TBitArray& operator=(TBitArray&& o) noexcept
+    {
+        if (this != &o)
+        {
+            delete[] m_pBytes;
+            m_Size = o.m_Size;
+            m_NumBytes = o.m_NumBytes;
+            m_pBytes = o.m_pBytes;
+            o.m_pBytes = nullptr;
+            o.m_Size = 0;
+            o.m_NumBytes = 0;
+        }
+        return *this;
     }
 
     const size_t Size() const { return m_Size; }
+
+    // Grow the bit array to NewSize, preserving existing bits (zero-initialized for new bits)
+    void Resize(size_t NewSize)
+    {
+        size_t newNumBytes = NewSize < 8 ? 1 : NewSize / 8;
+        Byte* pNewBytes = new Byte[newNumBytes];
+        // Copy existing data
+        size_t copyBytes = (m_NumBytes < newNumBytes) ? m_NumBytes : newNumBytes;
+        for (size_t i = 0; i < copyBytes; ++i)
+            pNewBytes[i] = m_pBytes[i];
+        delete[] m_pBytes;
+        m_pBytes = pNewBytes;
+        m_Size = NewSize;
+        m_NumBytes = newNumBytes;
+    }
 
     bool Get(_IndexType Index) const
     {
@@ -480,7 +523,7 @@ class TBuddySuballocator
     using _IndexListType = typename TIndexList<_IndexType, _IndexNodeType *>;
     using _BitArrayType = typename TBitArray<_IndexType>;
 
-    const size_t m_MaxSize;
+    size_t m_MaxSize;
     uint8_t m_MaxOrder;
     _IndexNodeType *m_AllocationTable; // Table of all possible allocations
     _IndexListType* m_FreeAllocations;
@@ -526,7 +569,7 @@ class TBuddySuballocator
     // Committed blocks are either split or allocated
     bool IsAllocated(const TBuddyBlock<_IndexType>& Block) const
     {
-        return Block.Order() + 1 == m_FreeAllocations->GetEncodedValue(m_AllocationTable, Block.Start());
+        return _IndexType(Block.Order() + 1) == m_FreeAllocations->GetEncodedValue(m_AllocationTable, Block.Start());
     }
 
     void TrackNodeAsAllocated(const TBuddyBlock<_IndexType>& Block)
@@ -627,15 +670,31 @@ public:
 
     ~TBuddySuballocator()
     {
-        delete m_AllocationTable;
-        delete m_FreeAllocations;
+        delete[] m_AllocationTable;
+        delete[] m_FreeAllocations;
     }
+
+    size_t GetCapacity() const { return m_MaxSize; }
 
     TBuddyBlock<_IndexType> Allocate(size_t Size)
     {
         uint8_t Order = (uint8_t) Log2Ceil(Size);
         auto Block = AllocateImpl(Order);
         return Block;
+    }
+
+    // Non-throwing allocation: returns true on success, false if no space available
+    bool TryAllocate(size_t Size, TBuddyBlock<_IndexType>& OutBlock)
+    {
+        try
+        {
+            OutBlock = Allocate(Size);
+            return true;
+        }
+        catch (BuddySuballocatorException&)
+        {
+            return false;
+        }
     }
 
     // Returns the block size that would be allocated for a given requested size
@@ -666,15 +725,95 @@ public:
             throw(BuddySuballocatorException(BuddySuballocatorException::Type::NotAllocated));
         }
 
-
         FreeImpl(Block);
+    }
+
+    // Non-throwing free: returns true if freed, false if block was not allocated
+    bool TryFree(const TBuddyBlock<_IndexType> &Block)
+    {
+        if (!IsAllocated(Block))
+            return false;
+        FreeImpl(Block);
+        return true;
+    }
+
+    // Double the capacity of the allocator. Existing allocations keep their offsets.
+    // The old tree becomes the left child of a new root; the right half is one free block.
+    void Grow()
+    {
+        size_t oldMaxSize = m_MaxSize;
+        uint8_t oldMaxOrder = m_MaxOrder;
+        size_t newMaxSize = oldMaxSize * 2;
+        uint8_t newMaxOrder = oldMaxOrder + 1;
+
+        // Grow allocation table (index node per unit)
+        _IndexNodeType* pNewTable = new _IndexNodeType[newMaxSize];
+        for (size_t i = 0; i < oldMaxSize; ++i)
+            pNewTable[i] = m_AllocationTable[i];
+        delete[] m_AllocationTable;
+        m_AllocationTable = pNewTable;
+
+        // Grow free lists (one list per order, 0..newMaxOrder)
+        _IndexListType* pNewFreeLists = new _IndexListType[newMaxOrder + 1];
+        for (uint8_t o = 0; o <= oldMaxOrder; ++o)
+            pNewFreeLists[o] = std::move(m_FreeAllocations[o]);
+        delete[] m_FreeAllocations;
+        m_FreeAllocations = pNewFreeLists;
+
+        // Rebuild the split state bit array with new state indices.
+        // StateIndex depends on m_MaxOrder, so old bits must be remapped.
+        // Old: StateIndex = (1 << (oldMaxOrder - Order)) + (Start >> Order) - 1
+        // New: StateIndex = (1 << (newMaxOrder - Order)) + (Start >> Order) - 1
+        // For a given (Order, Start), the new index has an extra factor of 2 at each level:
+        //   newStateIndex = 2 * oldStateIndex + 1
+        // This is because each old level L maps to new level L+1, which starts at 2*(1<<L)-1.
+        _BitArrayType newBitArray(newMaxSize);
+        // Remap split state bits for internal nodes (orders 1..oldMaxOrder).
+        // Order-0 blocks cannot be split, so they have no split state to remap.
+        for (uint8_t order = 1; order <= oldMaxOrder; ++order)
+        {
+            uint8_t oldLevel = oldMaxOrder - order;
+            uint8_t newLevel = newMaxOrder - order;
+            _IndexType countAtLevel = _IndexType(1) << oldLevel;
+            for (_IndexType idx = 0; idx < countAtLevel; ++idx)
+            {
+                _IndexType oldStateIdx = (_IndexType(1) << oldLevel) + idx - 1;
+                _IndexType newStateIdx = (_IndexType(1) << newLevel) + idx - 1;
+                if (m_SplitStateBitArray[oldStateIdx])
+                    newBitArray.Set(newStateIdx, true);
+            }
+        }
+        m_SplitStateBitArray = std::move(newBitArray);
+
+        // Update capacity
+        m_MaxSize = newMaxSize;
+        m_MaxOrder = newMaxOrder;
+
+        // Check if the left half (old tree root) is entirely free — if so, merge
+        // into a single free block at the new max order. Otherwise, mark root as
+        // split and add the right half at oldMaxOrder.
+        bool leftHalfFree = (m_FreeAllocations[oldMaxOrder].Size() > 0);
+        if (leftHalfFree)
+        {
+            // Remove the old root free block and add a full block at the new max order
+            m_FreeAllocations[oldMaxOrder].PopFront(m_AllocationTable);
+            m_FreeAllocations[newMaxOrder].PushFront(0, m_AllocationTable);
+        }
+        else
+        {
+            // Root is split: left half has allocations, right half is free
+            auto newRoot = TBuddyBlock<_IndexType>(0, newMaxOrder);
+            m_SplitStateBitArray.Set(StateIndex(newRoot), true);
+            m_FreeAllocations[oldMaxOrder].PushFront(
+                static_cast<_IndexType>(oldMaxSize), m_AllocationTable);
+        }
     }
 
     size_t TotalFree() const
     { 
         size_t TotalFree(0);
 
-        for (auto Order = m_MaxOrder; Order != (_IndexType)(-1); Order--)
+        for (int Order = m_MaxOrder; Order >= 0; Order--)
         {
             size_t Size = size_t(1) << Order;
 
@@ -694,7 +833,7 @@ public:
     size_t MaxAllocationSize() const
     {
         size_t MaxSize = 0;
-        for (auto Order = m_MaxOrder; Order != (_IndexType)(-1); Order--)
+        for (int Order = m_MaxOrder; Order >= 0; Order--)
         {
             if (m_FreeAllocations[Order].Size() != 0)
             {
