@@ -676,6 +676,12 @@ public:
 
     size_t GetCapacity() const { return m_MaxSize; }
 
+    // Returns true if the block is entirely free (neither split nor allocated)
+    bool IsBlockFree(const TBuddyBlock<_IndexType>& Block) const
+    {
+        return !IsSplit(Block) && !IsAllocated(Block);
+    }
+
     TBuddyBlock<_IndexType> Allocate(size_t Size)
     {
         uint8_t Order = (uint8_t) Log2Ceil(Size);
