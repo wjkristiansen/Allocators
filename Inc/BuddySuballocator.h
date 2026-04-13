@@ -5,8 +5,15 @@
 #pragma once
 
 //------------------------------------------------------------------------------------------------
-// Returns the position of the most significant bit or 0xffffffff if no bits were set
-constexpr unsigned long BitScanMSB(unsigned long mask)
+// Bit scanning: platform-optimized and constexpr-portable variants
+//------------------------------------------------------------------------------------------------
+
+#if defined(_MSC_VER)
+    #include <intrin.h>
+#endif
+
+// Constexpr-portable variant (for compile-time evaluation when C++20 is available)
+constexpr unsigned long BitScanMSB_constexpr(unsigned long mask)
 {
     unsigned long count = ~0UL;
 
@@ -59,23 +66,46 @@ constexpr unsigned long BitScanMSB(unsigned long mask)
     return count;
 }
 
-//------------------------------------------------------------------------------------------------
-// Returns the position of the most significant bit or 0xffffffff if no bits were set
-constexpr unsigned long BitScanMSB64(unsigned long long mask)
+constexpr unsigned long BitScanMSB64_constexpr(unsigned long long mask)
 {
-    return BitScanMSB((mask & 0xffffffff00000000) ? unsigned long(mask >> 32) : unsigned long(mask));
+    return BitScanMSB_constexpr((mask & 0xffffffff00000000) ? unsigned long(mask >> 32) : unsigned long(mask));
+}
+
+// Platform-optimized variant (single hardware instruction)
+inline unsigned long BitScanMSB(unsigned long mask)
+{
+#if defined(__GNUC__) || defined(__clang__)
+    return mask ? (31 - __builtin_clzl(mask)) : ~0UL;
+#elif defined(_MSC_VER)
+    unsigned long index;
+    return _BitScanReverse(&index, mask) ? index : ~0UL;
+#else
+    return BitScanMSB_constexpr(mask);
+#endif
+}
+
+inline unsigned long BitScanMSB64(unsigned long long mask)
+{
+#if defined(__GNUC__) || defined(__clang__)
+    return mask ? (63 - __builtin_clzll(mask)) : ~0UL;
+#elif defined(_MSC_VER)
+    unsigned long index;
+    return _BitScanReverse64(&index, mask) ? index : ~0UL;
+#else
+    return BitScanMSB64_constexpr(mask);
+#endif
 }
 
 //------------------------------------------------------------------------------------------------
-constexpr unsigned long Log2Ceil(unsigned int value)
+inline unsigned long Log2Ceil(unsigned int value)
 {
-    return (unsigned long)(value > 0 ? 1 + BitScanMSB((long) value - 1) : ~0UL);
+    return value > 1 ? 1 + BitScanMSB((unsigned long)(value - 1)) : 0;
 }
 
 //------------------------------------------------------------------------------------------------
-constexpr unsigned long Log2Ceil(unsigned __int64 value)
+inline unsigned long Log2Ceil(unsigned __int64 value)
 {
-    return (unsigned long)(value > 0 ? 1 + BitScanMSB64((unsigned long long) value - 1) : ~0UL);
+    return value > 1 ? 1 + BitScanMSB64((unsigned long long)(value - 1)) : 0;
 }
 
 //------------------------------------------------------------------------------------------------
